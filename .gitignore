@@ -40,9 +40,3 @@ htmlcov/
 # secret files
 .env
 local.env
-
-# project-specific
-Code/__pycache__/
-Code/*.pyc
-Code/*.pyo
-Code/*.pyd
