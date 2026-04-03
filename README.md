@@ -1,76 +1,105 @@
 # AstraNotes (Python Edition)
 
-AstraNotes is a secure, modular note-taking application originally scoped as a C++ engineering project, now implemented in Python for rapid development and testability.
+AstraNotes is a secure, modular note-taking platform built in Python as a CLI-first application with a plugin ecosystem and a future GUI extension path.
 
-## Project goals
+## Vision
 
-- Local-first note storage
-- Plugin architecture (Text, Voice, Secure, etc.)
-- Note history and version tracking
-- Encryption for private notes at rest
-- Unit tests with `pytest`
-- MVC-like separation (model/business, controllers, optional UI)
+- Local-first encrypted note storage
+- Plugin support with override mechanics (storage, encryption, commands)
+- Safety-first mechanism: red-alert + typed confirmation for overrides
+- Immutable audit trail and governance for security-sensitive operations
+- Future compatibility with a GUI layer
 
-## Repository layout
+## Modules and structure
 
-- `src/` - core application logic
-- `tests/` - unit tests (`pytest`)
-- `plugins/` - plugin definitions/implementations
-- `docs/` - architecture docs, UML, charters, etc.
-- `Requirments/` - project charter and requirements source
+- `src/core/` - business logic
+  - `notes.py` - Note model, `NoteStore`, encrypted persistence
+  - `security.py` - `EncryptionEngine`, `KeyManager` (core, high-trust)
+  - `plugin_base.py` - plugin interface + registry
+  - `config.py` - settings storage and override config (future)
+  - `audit.py` - append-only audit log (future)
+- `src/cli.py` - command-line entrypoint
+- `plugins/` - plugin packages and extensions
+- `tests/` - unit test suites
+- `docs/` - requirements, architecture, and governance
 
-## Quick start
+## Functional milestones
 
-1. Create a venv:
+1. Note CRUD with encrypted storage
+2. Plugin discovery + hook system
+3. Override flow with explicit user consent
+4. Test coverage for security, reliability, and governance
+5. GUI-ready API layer (desktop or web front-end)
+
+## Quickstart
+
+### 1. Setup
 
 ```bash
 python -m venv .venv
-source .venv/Scripts/activate   # Windows
-source .venv/bin/activate       # macOS/Linux
+# Windows (PowerShell)
+.venv\Scripts\Activate.ps1
+# macOS/Linux
+source .venv/bin/activate
 ```
 
-2. Install dependencies:
+### 2. Install dependencies
 
 ```bash
-pip install -r requirements.txt  # add this file to repo root
+pip install -r requirements.txt
 ```
 
-3. Clean old compiled artifacts and set isolated cache:
+### 3. Clean compiled artifacts
 
 ```bash
-# on Windows PowerShell
+# Windows PowerShell
 Remove-Item -Recurse -Force __pycache__, *.pyc -ErrorAction SilentlyContinue
 $env:PYTHONPYCACHEPREFIX = "$PWD/python_cache"
 
-# on macOS/Linux
+# macOS/Linux
 rm -rf __pycache__ *.pyc
 export PYTHONPYCACHEPREFIX="$PWD/python_cache"
 
 mkdir -p python_cache
 ```
 
-4. Run tests:
+### 4. Run tests
 
 ```bash
 pytest -q
 ```
 
-## Security notes
+### 5. Run CLI
 
-- Avoid storing plaintext secrets in source
-- Use AESCipher symmetric encryption for private notes
-- Keep user keys secure in local secure storage
+```bash
+python -m src.cli add --title "Test" --content "Hello"
+python -m src.cli list
+```
 
-## Project workflow
+## Security and governance
 
-1. Draft model interfaces (`Note`, `NoteStore`, `EncryptionEngine`)
-2. Implement and test feature stubs (add, update, delete, history)
-3. Add plugin layer with explicit contract classes
-4. Add CLI/GUI entrypoints
+- Default encryption: AES-256-GCM with PBKDF2 key derivation
+- Plugin overrides can optionally provide alternate encryption providers
+- Core key management never exposes raw keys to plugins
+- Audit trail logs override attempts and user confirmations
 
-## Optional future features
+## Plugin override policy
 
-- Sync to cloud using encrypted blobs
-- Markdown rendering + preview
-- Multi-user profile vaults
-- Search with full-text indexing
+- Core feature overrides require explicit confirmation:
+  - show warning (red-alert)
+  - require typed override token (e.g., `OVERRIDE-ENCRYPTION`)
+  - persist decision in audit log
+- When plugin override fails, automatically revert to core and report
+
+## Future GUI path
+
+- Add `src/gui/` with shared core dependency (no duplicated logic)
+- GUI can use same plugin registry and override policy
+- Focus on progressive disclosure and secure UI controls
+
+## Notes
+
+- You can extend plugin samples in `plugins/`.
+- Keep the core module stable and plugin integration safe.
+- Use tests systematically as regression and acceptance criteria.
+
