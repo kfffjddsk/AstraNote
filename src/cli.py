@@ -10,16 +10,22 @@ from .core.notes import Note, NoteStore
 from .core.security import KeyManager
 
 
+def ensure_store(ctx, data_dir):
+    """Ensure store is initialized in context."""
+    if 'store' not in ctx.obj:
+        passphrase = click.prompt('Encryption passphrase', hide_input=True)
+        key_manager = KeyManager(passphrase)
+        store_path = Path(data_dir) / "notes.json"
+        ctx.obj['store'] = NoteStore(path=str(store_path), key_manager=key_manager)
+
+
 @click.group()
 @click.option('--data-dir', default='data', help='Directory for note storage')
-@click.option('--passphrase', prompt=True, hide_input=True, help='Encryption passphrase')
 @click.pass_context
-def cli(ctx, data_dir, passphrase):
+def cli(ctx, data_dir):
     """AstraNote: Secure, modular note-taking app."""
     ctx.ensure_object(dict)
-    key_manager = KeyManager(passphrase)
-    store_path = Path(data_dir) / "notes.json"
-    ctx.obj['store'] = NoteStore(path=str(store_path), key_manager=key_manager)
+    ctx.obj['data_dir'] = data_dir  # Store data_dir for later use
 
 
 @cli.command()
@@ -28,6 +34,7 @@ def cli(ctx, data_dir, passphrase):
 @click.pass_context
 def add(ctx, title, content):
     """Add a new note."""
+    ensure_store(ctx, ctx.obj['data_dir'])
     store = ctx.obj['store']
     note_id = str(len(store.list()) + 1)  # Simple ID generation
     note = Note(id=note_id, title=title, content=content)
@@ -40,6 +47,7 @@ def add(ctx, title, content):
 @click.pass_context
 def get(ctx, note_id):
     """Retrieve and display a note."""
+    ensure_store(ctx, ctx.obj['data_dir'])
     store = ctx.obj['store']
     note = store.get(note_id)
     if note:
@@ -56,6 +64,7 @@ def get(ctx, note_id):
 @click.pass_context
 def list(ctx):
     """List all notes."""
+    ensure_store(ctx, ctx.obj['data_dir'])
     store = ctx.obj['store']
     notes = store.list()
     if notes:
@@ -72,6 +81,7 @@ def list(ctx):
 @click.pass_context
 def update(ctx, note_id, title, content):
     """Update an existing note."""
+    ensure_store(ctx, ctx.obj['data_dir'])
     store = ctx.obj['store']
     try:
         store.update(note_id, title=title, content=content)
@@ -85,6 +95,7 @@ def update(ctx, note_id, title, content):
 @click.pass_context
 def delete(ctx, note_id):
     """Delete a note."""
+    ensure_store(ctx, ctx.obj['data_dir'])
     store = ctx.obj['store']
     try:
         store.delete(note_id)
