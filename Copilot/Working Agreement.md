@@ -90,9 +90,15 @@ This working agreement defines how we plan, build, review, and deliver work toge
 
 ## Git Pushing Rules
 - Commit one feature, fix, or logical change at a time for clean traceability.
-- Use clear, descriptive commit messages that explain what changed and why.
+- Use a short summary line as the commit message, followed by a longer description only when needed.
 - Push documentation updates separately from code changes.
 - Push code changes in small, reviewable increments grouped by feature or concern.
 - Never combine unrelated changes in a single commit.
 - Validate that all tests pass before pushing.
 - Update corresponding docs in the same commit or a dedicated follow-up commit when the change affects user-facing behavior or project structure.
+
+## Writing Style for Docs and Paperwork
+- Use short, direct, deliverable language in all documentation and process notes.
+- Prefer action verbs and concrete outcomes over lengthy explanations.
+- Avoid filler words, redundant phrases, and unnecessary detail.
+- Keep commit messages, working logs, and review notes concise and scannable.
