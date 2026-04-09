@@ -31,15 +31,24 @@ def cli(ctx, data_dir):
 @cli.command()
 @click.option('--title', prompt='Title', help='Note title')
 @click.option('--content', prompt='Content', help='Note content')
+@click.option('--encrypt', type=click.Choice(['yes', 'no']), prompt='Encrypt this note?', default='no', help='Whether to encrypt the note')
 @click.pass_context
-def add(ctx, title, content):
+def add(ctx, title, content, encrypt):
     """Add a new note."""
-    ensure_store(ctx, ctx.obj['data_dir'])
-    store = ctx.obj['store']
-    note_id = str(len(store.list()) + 1)  # Simple ID generation
-    note = Note(id=note_id, title=title, content=content)
+    if not title.strip() or not content.strip():
+        click.echo('Error: title and content must not be empty')
+        raise click.Abort()
+    encrypted = encrypt == 'yes'
+    if encrypted:
+        ensure_store(ctx, ctx.obj['data_dir'])
+        store = ctx.obj['store']
+    else:
+        # For unencrypted, no need for key
+        store = NoteStore(path=str(Path(ctx.obj['data_dir']) / "notes.json"))
+    note_id = str(len(store.list()) + 1)
+    note = Note(id=note_id, title=title, content=content, encrypted=encrypted)
     store.add(note)
-    click.echo(f"Note '{title}' added with ID {note_id}")
+    click.echo(f"Note '{title}' added with ID {note_id} ({'encrypted' if encrypted else 'unencrypted'})")
 
 
 @cli.command()
@@ -47,29 +56,40 @@ def add(ctx, title, content):
 @click.pass_context
 def get(ctx, note_id):
     """Retrieve and display a note."""
-    ensure_store(ctx, ctx.obj['data_dir'])
-    store = ctx.obj['store']
+    # First, load without key to check if encrypted
+    store = NoteStore(path=str(Path(ctx.obj['data_dir']) / "notes.json"), key_manager=None)
     note = store.get(note_id)
-    if note:
-        click.echo(f"ID: {note.id}")
-        click.echo(f"Title: {note.title}")
-        click.echo(f"Content: {note.content}")
-        click.echo(f"Created: {note.created_at}")
-        click.echo(f"Modified: {note.modified_at}")
-    else:
-        click.echo(f"Note {note_id} not found")
+    if not note:
+        raise click.ClickException(f"Note {note_id} not found")
+    if note.encrypted:
+        # Need key for encrypted note
+        ensure_store(ctx, ctx.obj['data_dir'])
+        store = ctx.obj['store']
+        note = store.get(note_id)
+        if note.title == "[Encrypted Note]":
+            raise click.ClickException("Incorrect passphrase for encrypted note.")
+    # Display the note
+    click.echo(f"ID: {note.id}")
+    click.echo(f"Title: {note.title}")
+    click.echo(f"Content: {note.content}")
+    click.echo(f"Created: {note.created_at}")
+    click.echo(f"Modified: {note.modified_at}")
+    click.echo(f"Encrypted: {note.encrypted}")
 
 
 @cli.command()
 @click.pass_context
 def list(ctx):
     """List all notes."""
-    ensure_store(ctx, ctx.obj['data_dir'])
-    store = ctx.obj['store']
+    # List without requiring key; show encrypted notes as hidden
+    store = NoteStore(path=str(Path(ctx.obj['data_dir']) / "notes.json"))
     notes = store.list()
     if notes:
         for note in notes:
-            click.echo(f"{note.id}: {note.title} ({note.created_at})")
+            if note.encrypted:
+                click.echo(f"{note.id}: [Encrypted Note]")
+            else:
+                click.echo(f"{note.id}: {note.title} ({note.created_at})")
     else:
         click.echo("No notes found")
 
@@ -81,13 +101,22 @@ def list(ctx):
 @click.pass_context
 def update(ctx, note_id, title, content):
     """Update an existing note."""
-    ensure_store(ctx, ctx.obj['data_dir'])
-    store = ctx.obj['store']
+    # First load without key to inspect encryption status.
+    store = NoteStore(path=str(Path(ctx.obj['data_dir']) / "notes.json"), key_manager=None)
+    note = store.get(note_id)
+    if not note:
+        raise click.ClickException(f"Note {note_id} not found")
+    if note.encrypted:
+        ensure_store(ctx, ctx.obj['data_dir'])
+        store = ctx.obj['store']
+        keyed_note = store.get(note_id)
+        if keyed_note is None or keyed_note.title == "[Encrypted Note]":
+            raise click.ClickException("Incorrect passphrase for encrypted note.")
     try:
         store.update(note_id, title=title, content=content)
         click.echo(f"Note {note_id} updated")
     except KeyError:
-        click.echo(f"Note {note_id} not found")
+        raise click.ClickException(f"Note {note_id} not found")
 
 
 @cli.command()
@@ -95,13 +124,21 @@ def update(ctx, note_id, title, content):
 @click.pass_context
 def delete(ctx, note_id):
     """Delete a note."""
-    ensure_store(ctx, ctx.obj['data_dir'])
-    store = ctx.obj['store']
+    store = NoteStore(path=str(Path(ctx.obj['data_dir']) / "notes.json"), key_manager=None)
+    note = store.get(note_id)
+    if not note:
+        raise click.ClickException(f"Note {note_id} not found")
+    if note.encrypted:
+        ensure_store(ctx, ctx.obj['data_dir'])
+        store = ctx.obj['store']
+        keyed_note = store.get(note_id)
+        if keyed_note is None or keyed_note.title == "[Encrypted Note]":
+            raise click.ClickException("Incorrect passphrase for encrypted note.")
     try:
         store.delete(note_id)
         click.echo(f"Note {note_id} deleted")
     except KeyError:
-        click.echo(f"Note {note_id} not found")
+        raise click.ClickException(f"Note {note_id} not found")
 
 
 if __name__ == '__main__':
