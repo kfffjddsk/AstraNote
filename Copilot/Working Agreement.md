@@ -87,3 +87,12 @@ This working agreement defines how we plan, build, review, and deliver work toge
 - Search existing code and docs before adding new functionality to avoid duplication.
 - Use review, testing, and sprint retrospectives to detect drift or quality gaps.
 - Refine the agreement if patterns of drift, redundancy, or poor output emerge.
+
+## Git Pushing Rules
+- Commit one feature, fix, or logical change at a time for clean traceability.
+- Use clear, descriptive commit messages that explain what changed and why.
+- Push documentation updates separately from code changes.
+- Push code changes in small, reviewable increments grouped by feature or concern.
+- Never combine unrelated changes in a single commit.
+- Validate that all tests pass before pushing.
+- Update corresponding docs in the same commit or a dedicated follow-up commit when the change affects user-facing behavior or project structure.
