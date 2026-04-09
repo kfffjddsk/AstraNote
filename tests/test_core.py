@@ -2,6 +2,7 @@
 Tests for AstraNote Core Modules
 """
 
+import json
 import pytest
 import tempfile
 from pathlib import Path
@@ -87,3 +88,84 @@ class TestNoteStore:
         store.add(note)
         with pytest.raises(ValueError):
             store.add(note)
+
+    def test_add_encrypted_note_requires_key_manager(self, tmp_path):
+        store = NoteStore(path=str(tmp_path / "notes.json"), key_manager=None)
+
+        with pytest.raises(ValueError):
+            store.add(Note(id="1", title="Secret", content="Content", encrypted=True))
+
+    def test_load_encrypted_note_without_key_hides_title_and_content(self, tmp_path):
+        path = tmp_path / "notes.json"
+        writer = NoteStore(path=str(path), key_manager=KeyManager("correctpass"))
+        writer.add(Note(id="1", title="Secret", content="Content", encrypted=True))
+
+        reader = NoteStore(path=str(path), key_manager=None)
+        note = reader.get("1")
+
+        assert note is not None
+        assert note.encrypted is True
+        assert note.title == "[Encrypted Note]"
+        assert note.content != "Content"
+        assert note.encrypted_title is not None
+
+    def test_load_encrypted_note_with_wrong_key_hides_title_and_content(self, tmp_path):
+        path = tmp_path / "notes.json"
+        writer = NoteStore(path=str(path), key_manager=KeyManager("correctpass"))
+        writer.add(Note(id="1", title="Secret", content="Content", encrypted=True))
+
+        reader = NoteStore(path=str(path), key_manager=KeyManager("wrongpass"))
+        note = reader.get("1")
+
+        assert note is not None
+        assert note.title == "[Encrypted Note]"
+        assert note.content != "Content"
+
+    def test_load_encrypted_note_with_correct_key_decrypts(self, tmp_path):
+        path = tmp_path / "notes.json"
+        writer = NoteStore(path=str(path), key_manager=KeyManager("correctpass"))
+        writer.add(Note(id="1", title="Secret", content="Content", encrypted=True))
+
+        reader = NoteStore(path=str(path), key_manager=KeyManager("correctpass"))
+        note = reader.get("1")
+
+        assert note is not None
+        assert note.title == "Secret"
+        assert note.content == "Content"
+
+    def test_delete_unencrypted_note_preserves_other_encrypted_records(self, tmp_path):
+        path = tmp_path / "notes.json"
+        writer = NoteStore(path=str(path), key_manager=KeyManager("correctpass"))
+        writer.add(Note(id="1", title="Plain", content="Visible", encrypted=False))
+        writer.add(Note(id="2", title="Secret", content="Hidden", encrypted=True))
+
+        reader = NoteStore(path=str(path), key_manager=None)
+        reader.delete("1")
+
+        reloaded = NoteStore(path=str(path), key_manager=KeyManager("correctpass"))
+        note = reloaded.get("2")
+        assert note is not None
+        assert note.title == "Secret"
+        assert note.content == "Hidden"
+
+
+@pytest.mark.stress
+def test_store_handles_1001_adds_and_deletes_safely(tmp_path):
+    path = tmp_path / "notes.json"
+    store = NoteStore(path=str(path))
+
+    for index in range(1001):
+        note_id = str(index + 1)
+        store.add(Note(id=note_id, title=f"Note {note_id}", content=f"Content {note_id}"))
+
+    assert len(store.list()) == 1001
+
+    reloaded = NoteStore(path=str(path))
+    assert len(reloaded.list()) == 1001
+
+    for index in range(1001):
+        reloaded.delete(str(index + 1))
+
+    assert reloaded.list() == []
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+    assert persisted == {}
