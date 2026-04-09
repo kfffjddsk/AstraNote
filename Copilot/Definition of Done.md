@@ -13,6 +13,7 @@ A feature, fix, or improvement is considered complete when it satisfies the foll
 ## Documentation
 - A working log entry is created in the `Copilot` folder.
 - Relevant documentation is updated in `docs/` or project docs.
+- Corresponding docs are updated after any code, test, or configuration change.
 - User-facing behavior and CLI changes are clearly described.
 - Any setup, configuration, or usage notes are documented.
 
