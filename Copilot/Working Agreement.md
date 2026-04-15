@@ -6,87 +6,81 @@
 - Responsibility: collaborate on feature design, delivery workflow, testing, documentation, and code quality
 
 ## Purpose
-This working agreement defines how we plan, build, review, and deliver work together. It follows Agile and Scrum principles with an industry focus on incremental delivery, reliable testing, and clear team communication.
+Defines how we plan, build, review, and deliver work. Follows Agile/Scrum with focus on incremental delivery, reliable testing, and clear communication.
 
 ## Workflow Principles
 1. Backlog
-   - Capture work items, bugs, and improvements in a shared backlog or issue tracker.
-   - Refine items with clear acceptance criteria, defined scope, and testable outcomes.
-   - Prioritize by user value, risk, complexity, and dependencies.
-   - Keep work items small and focused so they can be completed within one sprint.
+   - Capture items, bugs, and improvements in a shared tracker.
+   - Refine with acceptance criteria, scope, and testable outcomes.
+   - Prioritize by value, risk, complexity, and dependencies.
+   - Keep items small enough to complete in one sprint.
 
 2. Sprint
-   - Organize work into short, timeboxed delivery windows.
-   - Define a sprint goal and commit to a small set of backlog items.
-   - Start with a minimal viable product (MVP) that addresses the core need.
-   - Iterate from MVP to a fully polished feature over subsequent sprint cycles.
+   - Organize work into short, timeboxed windows.
+   - Set a sprint goal and commit to a small set of items.
+   - Start with MVP, then iterate to a complete feature.
 
 3. Stand-up
-   - Share what changed, what is next, and what is blocked.
-   - Keep updates brief, concrete, and aligned with sprint goals.
-   - Use stand-up as a coordination checkpoint, not a status report.
+   - Share what changed, what's next, and blockers.
+   - Keep updates brief and aligned with the sprint goal.
 
 4. Review
-   - Conduct peer review for correctness, readability, and maintainability.
-   - Validate completed work against acceptance criteria and quality standards.
-   - Gather feedback, capture improvements, and update the backlog.
-   - Retrospect on what went well and what can improve for the next sprint.
+   - Review for correctness, readability, and maintainability.
+   - Validate against acceptance criteria.
+   - Capture feedback and update backlog.
+   - Retrospect on wins and improvements.
 
 ## Feature Delivery Approach
-- Define expected behavior and acceptance criteria before implementation.
-- Deliver a working MVP first, then expand features incrementally.
-- Validate each change with automated tests and a working prototype.
-- Add edge-case handling, UX improvements, and documentation after core behavior is stable.
-- Use small pull requests or commits to keep review manageable.
+- Define behavior and acceptance criteria before coding.
+- Deliver MVP first, expand incrementally.
+- Validate with automated tests.
+- Add edge cases, UX, and docs after core is stable.
+- Use small commits for clean review.
 
 ## Delivery Standard
-- Deliver work through a repeatable process:
-  1. define the problem and acceptance criteria,
-  2. implement the MVP,
-  3. validate with tests,
-  4. expand to a complete feature,
-  5. document and review.
-- Maintain high code quality with clean architecture, readable code, and minimal technical debt.
-- Follow project conventions and avoid inconsistent style.
-- Ensure every change is safe to merge with automated validation and review.
+- Repeatable process: define → implement MVP → test → expand → document → review.
+- Maintain clean architecture, readable code, minimal debt.
+- Follow project conventions.
+- Every change must be safe to merge.
 
 ## Collaboration Rules
-- Keep communication clear and timely.
+- Communicate clearly and promptly.
 - Document assumptions, decisions, and risks.
-- Update backlog items and docs when requirements change.
-- Treat the codebase as shared ownership and help each other maintain quality.
-- Use the `Copilot` folder for working logs, agreements, and process notes.
+- Update backlog and docs when requirements change.
+- Shared codebase ownership.
+- Use `Copilot/` for logs, agreements, and process notes.
 
 ## Planning and Tracking Work
-- Track work in a shared backlog or issue tracker with clear status and priority.
-- Plan work as small, testable items that fit into a sprint.
-- Use labels or tags for states like `backlog`, `in progress`, `review`, and `done`.
-- Record acceptance criteria and expected outcomes for each item.
-- Update the backlog with progress, blockers, and follow-up work after each stand-up.
+- Track items with clear status and priority.
+- Plan small, testable items per sprint.
+- Tag states: `backlog`, `in progress`, `review`, `done`.
+- Record acceptance criteria per item.
+- Update backlog after each stand-up.
+- After completing or modifying a feature, update `planning/` docs (requirements, user stories, backlog, sprint plan).
 
 ## AI in the Workflow
-- Use AI as a collaborative partner for drafting code, tests, documentation, and design notes.
-- Treat AI suggestions as proposals, not final decisions.
-- Validate AI output through review, testing, and alignment with project requirements.
-- Use AI for repetitive or boilerplate tasks while preserving human oversight for architecture and correctness.
+- Use AI for drafting code, tests, docs, and design notes.
+- Treat AI output as proposals, not decisions.
+- Validate through review, tests, and requirement alignment.
+- AI handles boilerplate; human owns architecture and correctness.
 
 ## Documenting Prompts, Decisions, and Revisions
-- Log key prompts and revision notes in the `Copilot` folder.
-- Create a working log entry for significant changes, including why the change was made.
-- Record decisions, assumptions, and any prompt context that influenced the solution.
-- Keep prompt records concise but sufficient to explain the workflow and rationale.
+- Log key prompts and revisions in `Copilot/`.
+- Create a working log for significant changes with rationale.
+- Record decisions, assumptions, and prompt context.
+- Keep records concise but traceable.
 
 ## Accepting AI Output
-- Accept AI output only when it meets the agreed acceptance criteria.
-- Verify output by code review, automated tests, and documentation coverage.
-- Reject or revise AI output that introduces incorrect assumptions, duplication, or low-quality code.
-- Prefer incremental AI-assisted changes over large, unverified rewrites.
+- Accept only when acceptance criteria are met.
+- Verify via review, tests, and docs.
+- Reject output with wrong assumptions, duplication, or low quality.
+- Prefer incremental changes over large rewrites.
 
 ## Preventing Drift and Low-Quality Output
-- Keep a single source of truth for requirements, design decisions, and backlog items.
-- Search existing code and docs before adding new functionality to avoid duplication.
-- Use review, testing, and sprint retrospectives to detect drift or quality gaps.
-- Refine the agreement if patterns of drift, redundancy, or poor output emerge.
+- Single source of truth for requirements, decisions, and backlog.
+- Search existing code and docs before adding functionality.
+- Use reviews and retrospectives to catch drift.
+- Refine this agreement when patterns of drift emerge.
 
 ## Git Pushing Rules
 - Commit one feature, fix, or logical change at a time for clean traceability.

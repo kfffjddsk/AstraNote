@@ -1,54 +1,54 @@
 # Copilot Definition of Done
 
-A feature, fix, or improvement is considered complete when it satisfies the following criteria and is ready for merge, release, or the next iteration.
+A feature or fix is done when it meets these criteria and is ready to merge.
 
 ## Quality and Verification
-- Code builds, runs, and passes all validation steps.
-- Relevant unit and integration tests are added or updated.
-- Existing tests continue to pass after the change.
-- Automated tests cover the new or modified behavior.
-- Key use cases and edge cases are validated.
-- No unresolved warnings, lint issues, or obvious regressions remain.
+- Code builds and passes all tests.
+- New or modified behavior has automated test coverage.
+- Existing tests still pass.
+- Key use cases and edge cases validated.
+- No unresolved warnings or regressions.
 
 ## Documentation
-- A working log entry is created in the `Copilot` folder.
-- Relevant documentation is updated in `docs/` or project docs.
-- Corresponding docs are updated after any code, test, or configuration change.
-- User-facing behavior and CLI changes are clearly described.
-- Any setup, configuration, or usage notes are documented.
+- Working log entry in `Copilot/`.
+- Relevant docs in `docs/` updated.
+- Corresponding docs updated after any code or config change.
+- Planning docs (`planning/`) updated after feature completion or modification.
+- CLI and user-facing changes described.
+- Setup and usage notes documented.
 
 ## Review and Readiness
-- Code has been reviewed for correctness, readability, and maintainability.
-- Implementation matches acceptance criteria and agreed scope.
-- The change maps to a real objective, requirement, or user need.
-- The logic and design can be clearly explained.
-- The change is incremental and small enough for reliable review.
-- Any known limitations or deferred improvements are documented.
-- The change is safe to merge and does not leave the project in a broken state.
+- Reviewed for correctness, readability, maintainability.
+- Matches acceptance criteria and scope.
+- Maps to a real requirement or user need.
+- Logic and design explainable.
+- Incremental and reviewable.
+- Known limitations documented.
+- Safe to merge.
 
 ## Requirements and Validation
-- The work is traceable from requirement to design, implementation, and tests.
-- Testing, validation, and acceptance checks are defined and executed.
-- The solution is reviewed for realism, feasibility, and practical use.
-- Security, privacy, and governance concerns are explicitly considered where relevant.
-- The work contributes clear value and is worth moving forward.
+- Traceable from requirement to implementation to test.
+- Acceptance checks defined and executed.
+- Reviewed for feasibility and practical use.
+- Security and privacy considered where relevant.
+- Delivers clear value.
 
 ## Engineering Standards
-- Implementation is clean with no dead code, debug artifacts, or experimental leftovers.
-- Naming, formatting, and structure follow project conventions.
-- Security, privacy, and performance implications are considered for relevant changes.
-- Backlog or issue tracking is updated with status, dependencies, and follow-up tasks.
+- No dead code, debug artifacts, or experimental leftovers.
+- Follows project naming, formatting, and structure conventions.
+- Security and performance considered for relevant changes.
+- Backlog updated with status and follow-ups.
 
 ## Working Log Requirements
 For every completed item, record:
-- A short summary of what changed.
-- Why the change was made.
-- Key decisions and design notes.
-- Tests and validation steps performed.
-- Any follow-up actions or next sprint items.
+- What changed.
+- Why.
+- Key decisions.
+- Tests performed.
+- Follow-up actions.
 
 ## MVP and Incremental Delivery
-- Deliver the smallest useful version of a feature first.
-- Validate the MVP with tests and feedback.
-- Expand to a complete feature only after the core behavior is stable.
-- Mark the item done only when the delivered work is reliable, documented, and review-ready.
+- Ship the smallest useful version first.
+- Validate MVP with tests and feedback.
+- Expand only after core behavior is stable.
+- Done = reliable, documented, review-ready.
