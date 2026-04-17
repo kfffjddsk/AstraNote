@@ -1,5 +1,9 @@
 # AstraNotes (Python Edition)
 
+[![User Guide](https://img.shields.io/badge/📖_User_Guide-blue?style=for-the-badge)](#for-users)
+[![Developer Guide](https://img.shields.io/badge/🔧_Developer_Guide-green?style=for-the-badge)](#for-developers)
+[![License](https://img.shields.io/badge/License-Apache_2.0-orange?style=for-the-badge)](LICENSE)
+
 AstraNotes is a secure, modular note-taking platform built in Python as a CLI-first application with a plugin ecosystem and a future GUI extension path.
 
 ## Vision
