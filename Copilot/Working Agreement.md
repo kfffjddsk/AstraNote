@@ -85,6 +85,7 @@ Defines how we plan, build, review, and deliver work. Follows Agile/Scrum with f
 - **Post-change consistency check:** after every change (code or docs), cross-check all related files for conflicts or inconsistencies. If anything is ambiguous and not 100% certain, propose it to the user for review rather than assuming.
 
 ## Git Pushing Rules
+- **Never push without explicit user review and confirmation.** Present the staged changes and commit plan to the user first; push only after approval.
 - Commit one feature, fix, or logical change at a time for clean traceability.
 - Use a short summary line as the commit message, followed by a longer description only when needed.
 - Push documentation updates separately from code changes.
