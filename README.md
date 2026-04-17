@@ -7,7 +7,7 @@ AstraNotes is a secure, modular note-taking platform built in Python as a CLI-fi
 - Local-first encrypted note storage
 - Plugin support with override mechanics (storage, encryption, commands)
 - Safety-first mechanism: red-alert + typed confirmation for overrides
-- Immutable audit trail and governance for security-sensitive operations
+- Append-only audit trail and governance for security-sensitive operations (per-user logs deleted on account deletion)
 - Future compatibility with a GUI layer
 
 ## Modules and structure
@@ -81,14 +81,44 @@ python -m src.cli list
 - Default encryption: AES-256-GCM with PBKDF2 key derivation
 - Plugin overrides can optionally provide alternate encryption providers
 - Core key management never exposes raw keys to plugins
-- Audit trail logs override attempts and user confirmations
+- Audit trail logs encryption, decryption, passphrase attempts, overrides, plugin loads, auth events, migration, and export
+- Per-user data isolation in server mode with hashed directory names
 
 ## Plugin override policy
 
 - Core feature overrides require explicit confirmation:
-  - show warning (red-alert)
-  - require typed override token (e.g., `OVERRIDE-ENCRYPTION`)
-  - persist decision in audit log
+  - Show warning (red-alert)
+  - Require typed confirmation: `CONFIRM OVERRIDE`
+  - Persist decision in audit log
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).
+
+**Note:** Apache 2.0 permits commercial use. If you intend to restrict commercial redistribution, consider adding a Commons Clause or switching to a non-commercial license.
+
+## Dependency Licenses
+
+| Package | License |
+|---------|---------|
+| click | BSD-3-Clause |
+| cryptography | Apache-2.0 / BSD-3-Clause |
+| pytest | MIT |
+| pytest-bdd | MIT |
+| python-docx | MIT |
+
+Future dependencies (not yet in `requirements.txt`):
+
+| Package | License |
+|---------|---------|
+| SQLAlchemy | MIT |
+| Alembic | MIT |
+| bcrypt | Apache-2.0 |
+| psycopg2-binary | LGPL |
+
+## AI-Use Disclosure
+
+This project uses AI assistance (GitHub Copilot) as a documented development tool. All AI-generated output is reviewed and validated by the human team member. See [docs/ai-use-disclosure.md](docs/ai-use-disclosure.md) for full details.
 - When plugin override fails, automatically revert to core and report
 
 ## Future GUI path
