@@ -127,7 +127,7 @@ Persistent settings module.
 |----|-------------|
 | R9.1 | Store settings in `<data-dir>/config.json` |
 | R9.2 | CLI commands: `config set`, `config get`, `config list`, `config reset` |
-| R9.3 | Known keys only: `default_encrypt` (yes/no), `passphrase_min_length` (int), `data_dir` (path), `plugin_dir` (path), `deployment_mode` (personal/server), `allowed_plugins` (list); free-form keys rejected |
+| R9.3 | Known keys only: `default_encrypt` (yes/no), `passphrase_min_length` (int), `data_dir` (path), `plugin_dir` (path), `allowed_plugins` (list), `theme` (light/dark), `font_size` (int), `sync_server_url` (URL), `sync_auto_interval` (int, seconds, 0 = disabled); free-form keys rejected |
 | R9.4 | Invalid value type for a key → error with expected type |
 | R9.5 | Config file missing → all defaults used, file created on first `config set` |
 | R9.6 | `DATABASE_URL` never stored in config; accepted from environment variable only |
@@ -146,33 +146,54 @@ Find notes and export to external formats.
 | R10.6 | Export 1000+ notes within 2 seconds |
 | R10.7 | Exported/retrieved files have restricted permissions (creator + administrator only). `export --cleanup` purges the user's exports directory. Warning displayed on export: decrypted data written to disk |
 
-## R11: GUI Layer *(Deferred)*
+## R11: GUI Layer
 
-Graphical interface sharing core logic. Deferred to future sprint after CLI stabilization.
+Two distinct GUI products share the same core Python modules (`NoteStore`, `EncryptionEngine`, `PluginRegistry`). The CLI remains the primary interface through Sprint 3; GUI variants are planned for Sprint 4 (local CRUD desktop) and Sprint 5 (sync added to same desktop app). There is no browser-based surface.
 
-| ID | Requirement |
-|----|-------------|
-| R11.1 | GUI uses same core modules as CLI (NoteStore, EncryptionEngine, PluginRegistry) |
-| R11.2 | Supports all CRUD operations through UI controls |
-| R11.3 | No core logic duplication; framework decision pending |
-| R11.4 | Passphrase prompted via dialog for encrypted notes |
-
-## R12: Deployment Modes
-
-Personal (single-user, local) vs Server (multi-user, remote DB) deployment.
+### R11-A: Personal GUI (Sprint 4)
 
 | ID | Requirement |
 |----|-------------|
-| R12.1 | First-launch prompt: choose Personal or Server mode |
-| R12.2 | Personal mode: single-user, no login, SQLite backend at `<data-dir>/notes.db` |
-| R12.3 | Server mode: multi-user, login required, PostgreSQL backend via `DATABASE_URL` |
-| R12.4 | Mode stored in `config.json` under `deployment_mode` (personal \| server) |
-| R12.5 | Mode switch requires typed `CONFIRM MODE SWITCH`; warns about data migration |
-| R12.6 | Account management commands hidden in personal mode |
+| R11.1 | Personal GUI shares the same core modules as the CLI: `NoteStore`, `EncryptionEngine`, `PluginRegistry` — no logic duplication |
+| R11.2 | Personal GUI supports all CRUD operations (add, get, list, update, delete) through UI controls |
+| R11.3 | Personal GUI design is minimal and task-focused — note list on the left, content editor on the right; no unneeded chrome (inspired by Apple Notes / Simplenote / Notesnook) |
+| R11.4 | Passphrase prompted via a modal dialog for encrypted notes |
+| R11.5 | Desktop GUI uses the SQLite local store (Layer 1); no server dependency for Sprint 4 |
+| R11.6 | GUI framework: PySide6 (ADR-13 decided); native Qt6 widgets; LGPL |
 
-## R13: Authentication (Server Mode)
+### R11-B: Sync-Enabled Desktop Client (Sprint 5)
 
-User accounts and session management for multi-user deployment.
+| ID | Requirement |
+|----|-------------|
+| R11.7 | Sprint 5 extends the Sprint 4 desktop app with cloud sync UI; no separate browser-based surface; the sync server is backend-only |
+| R11.8 | Desktop client communicates with the sync server exclusively via HTTPS sync endpoints (`/sync/push`, `/sync/pull`); it never accesses the remote database directly |
+| R11.9 | Desktop client supports login via Google OAuth 2.0 / OpenID Connect (PKCE flow: opens system browser for consent, captures redirect on ephemeral localhost callback); local username/password login also supported |
+| R11.10 | Cloud sync triggered by user action (sync button); app calls push/pull on demand; background sync is opt-in via config |
+| R11.12 | Desktop client shares the same PySide6 codebase as Sprint 4; sync-related UI elements (sync button, sync-status dot, login dialog) activated by presence of a valid session token |
+
+## R12: Local-First Architecture with Opt-In Account and Cloud Sync  `[LOG 05-04]`
+
+The app uses a **three-layer additive model**. Each layer is independent and opt-in; no layer is required to use the layer below it.
+
+| Layer | Description | Required? |
+|-------|-------------|----------|
+| **Local store** | SQLite on the device; always active | Always on |
+| **Account** | Adds identity; separates notes from other users on the same device | Optional |
+| **Cloud sync** | Uploads/downloads notes to/from a remote sync server | Optional; requires account |
+
+| ID | Requirement |
+|----|-------------|
+| R12.1 | The local SQLite store is always active. No first-launch mode selection is required. The app works fully offline and account-free forever |
+| R12.2 | Every note has a nullable `account_id` column. `NULL` means the note is device-local (anonymous). A non-null value means the note is associated with an account and is eligible for cloud sync |
+| R12.3 | When a user logs in for the first time on a device that has existing anonymous notes (`account_id = NULL`), the app prompts once: "You have N local notes. Associate them with your account? [Yes / No / Ask me for each]". This prompt is the only migration step |
+| R12.4 | After login, new notes are automatically associated with the active account (`account_id` set). A note can be explicitly created as local-only even while logged in |
+| R12.5 | Cloud sync is triggered manually (`sync push` / `sync pull`) or automatically in the background if enabled in config; requires an active account session |
+| R12.6 | Multiple accounts may exist on one device; notes are scoped by `account_id`. Switching accounts shows only that account's notes (plus anonymous notes if the user chooses to show them) |
+| R12.7 | Logging out does not delete local notes; it detaches the account session. Notes with `account_id` set remain on the device; they simply will not sync until the user logs in again |
+
+## R13: Account and Authentication *(Optional Layer)*  `[LOG 05-04]`
+
+Account features are entirely opt-in. Data access never requires a session; authentication only gates cloud sync and account-scoped note visibility.
 
 | ID | Requirement |
 |----|-------------|
@@ -180,15 +201,16 @@ User accounts and session management for multi-user deployment.
 | R13.2 | Password stored as bcrypt hash; never stored or logged in plaintext |
 | R13.3 | Username: 3–32 chars, alphanumeric + underscore only, case-insensitive uniqueness (`admin` == `Admin`) |
 | R13.4 | Password minimum 8 characters |
-| R13.5 | `login` prompts interactively; correct credentials → session token file at `<data-dir>/.session` (JSON: `user_id`, `username`, `created_at`, `expires_at`). File permissions restricted to creator and administrator only (Unix: `chmod 600`; Windows: ACL restricted to owner + Administrators) |
+| R13.5 | `login` prompts interactively; correct credentials → session token file at `<data-dir>/.session` (JSON: `account_id`, `username`, `created_at`, `expires_at`). File permissions restricted to creator and administrator only |
 | R13.6 | Wrong credentials → error, no session created |
-| R13.7 | Auth rate limiting: 5 consecutive failed login attempts → account locked for 5 minutes; tracked via `failed_attempts` and `locked_until` columns in `users` table |
-| R13.8 | Session tokens expire after 24 hours; expired token → "Session expired, please log in again" error |
-| R13.9 | All data commands require active, non-expired session in server mode; unauthenticated → error |
-| R13.10 | `logout` deletes session token file; subsequent commands require re-login |
-| R13.11 | Queries scoped by `user_id`; no cross-user data access |
-| R13.12 | `delete-account` prompts password + typed `CONFIRM DELETE ACCOUNT`; purges entire per-user directory (audit logs, filesystem payloads, exports) and deletes user record from database |
-| R13.13 | Config file tampering: `deployment_mode` changes validated — switching from `server` to `personal` requires `CONFIRM MODE SWITCH` even via config edit; mismatch between config and DB state → error |
+| R13.7 | Auth rate limiting: 5 consecutive failed login attempts → account locked for 5 minutes; tracked via `failed_attempts` and `locked_until` columns in `accounts` table |
+| R13.8 | Session tokens expire after 24 hours; expired session → sync and account-scoped operations fail with "Session expired" error; local note operations (CRUD) continue unaffected |
+| R13.9 | `logout` deletes session token file. Local notes remain accessible. Synced notes remain on the device with their `account_id` intact |
+| R13.10 | Notes queries when logged in show the active account's notes plus anonymous notes. Notes queries when logged out show only anonymous notes |
+| R13.11 | On the sync server: queries scoped by `account_id`; no cross-account data access |
+| R13.12 | `delete-account` prompts password + typed `CONFIRM DELETE ACCOUNT`; removes account record from server; detaches `account_id` from all local notes (sets to NULL); user is warned that cloud copies will be deleted |
+| R13.13 | Desktop GUI and CLI support OAuth 2.0 / OpenID Connect login (authlib); identity token from provider exchanged for a local session token. Local username/password registration also supported |
+| R13.14 | Google is the required minimum OAuth provider; extensible provider pattern (authlib) allows adding GitHub or Microsoft without core changes |
 
 ## R14: Database Storage & Sandbox Binary Storage
 
@@ -196,19 +218,19 @@ Relational storage with sandbox binary model for note data.
 
 | ID | Requirement |
 |----|-------------|
-| R14.1 | Personal mode: SQLite, zero-config, single-file database; WAL mode enabled with retry logic for concurrent CLI instances |
-| R14.2 | Server mode: PostgreSQL, connection via `DATABASE_URL` environment variable only (never stored in config); connection must use `sslmode=require` |
-| R14.3 | `notes` table columns: `note_id` (PK), `user_id` (FK, nullable in personal), `title` (plaintext, for fast listing), `format` (MIME type, plaintext), `encrypted_blob` (BLOB/bytea), `nonce` (nullable — NULL for unencrypted), `salt` (nullable — NULL for unencrypted), `is_encrypted` (bool), `payload_location` (enum: `inline` \| `filesystem` — filesystem only valid when `is_encrypted = true`) |
+| R14.1 | Local store: SQLite, zero-config, single-file database at `<data-dir>/notes.db`; WAL mode enabled with retry logic for concurrent access (CLI + GUI simultaneously) |
+| R14.2 | Sync server (if self-hosted): PostgreSQL backend via `DATABASE_URL` environment variable only (never stored in config); connection must use `sslmode=require`. Cloud-hosted sync service uses the same schema |
+| R14.3 | `notes` table columns: `note_id` (PK), `account_id` (FK, **nullable** — NULL = anonymous/device-local), `title` (plaintext, for fast listing), `format` (MIME type, plaintext), `encrypted_blob` (BLOB/bytea), `nonce` (nullable — NULL for unencrypted), `salt` (nullable — NULL for unencrypted), `is_encrypted` (bool), `payload_location` (enum: `inline` \| `filesystem` — filesystem only valid when `is_encrypted = true`), `synced_at` (nullable timestamp — NULL = never synced or local-only) |
 | R14.4 | Sandbox binary storage: blob uses length-prefixed framing; header (JSON) + payload (raw bytes). Encrypted notes: entire blob is AES-256-GCM ciphertext. Unencrypted notes: plaintext header + raw payload |
 | R14.5 | No sensitive metadata (content, timestamps, tags, original_filename) stored outside the blob. `title` column stores a user-chosen alias for encrypted notes (defaults to `[Encrypted Note]` if omitted; authoritative title remains inside the blob). `format` duplicated as plaintext column for fast listing; authoritative copy remains inside the blob |
 | R14.6 | ACID transactions on every mutation; concurrent writes must not corrupt data |
 | R14.7 | `migrate` CLI command converts `notes.json` → database; backs up JSON before migration. Alert user that encrypted notes require passphrase entry for conversion to sandbox blob format. If user confirms, prompt passphrase per encrypted note; mismatched passphrase → skip that note with warning. Skipped notes remain in JSON backup. After all notes migrated successfully, prompt to securely delete backup; auto-deleted if confirmed. If any notes skipped, warn that backup must be kept |
 | R14.8 | Size threshold: payloads ≤ 5 MB stored inline in `encrypted_blob` column. Payloads > 5 MB: only encrypted notes may use filesystem storage under per-user directory at `files/<note_id>.<ext>` (server: `<data-dir>/users/<hashed_uid>/files/`; personal: `<data-dir>/files/`). AES-256-GCM encrypted before writing to disk; DB stores path reference in blob header. Unencrypted notes always stored inline regardless of size (no plaintext files on disk). Orphan cleanup on note delete |
 | R14.9 | Retrieval: decrypt blob → parse header. `text/*` format → display as plaintext. Binary format → write payload to per-user exports directory (`exports/<original_filename>`) with restricted permissions; display path and cleanup warning |
-| R14.10 | `users` table (server mode only): `user_id` (PK), `username` (unique, case-insensitive), `password_hash`, `created_at`, `failed_attempts` (int, default 0), `locked_until` (nullable timestamp) |
+| R14.10 | `accounts` table (local, created on first `register` or `login`): `account_id` (PK, UUID), `username` (unique, case-insensitive), `password_hash`, `created_at`, `failed_attempts` (int, default 0), `locked_until` (nullable timestamp). This table exists in the local SQLite DB; a mirror exists on the sync server |
 | R14.11 | Schema versioned via Alembic; future schema changes applied through migration scripts |
 | R14.12 | Disk-full errors caught at DB layer; actionable error message, no silent data loss |
-| R14.13 | Server mode: user-specific data (audit log, filesystem payloads, exports) stored under `<data-dir>/users/<hashed_user_id>/` where directory name is SHA-256 hash of `user_id` (prevents enumeration). Personal mode: flat `<data-dir>/` layout. Per-user directory purged on `delete-account` |
+| R14.13 | Data directory is always flat: `<data-dir>/notes.db`, `<data-dir>/files/`, `<data-dir>/exports/`, `<data-dir>/audit.log`. No per-user subdirectory structure on the local device. On the sync server, data is stored per `account_id` |
 
 ## R15: Injection Prevention
 
@@ -225,3 +247,20 @@ Guard against SQL injection and input injection attacks.
 | R15.7 | Plugins receive note data as read-only copies; content never passed to `exec()`, `eval()`, or shell commands; plugins cannot access raw DB connection |
 | R15.8 | File path inputs (`--data-dir`, `--output`, attachment paths) must be validated against path traversal (`../`, absolute paths outside data-dir); reject or normalize |
 | R15.9 | `DATABASE_URL` must use `sslmode=require` for PostgreSQL; reject connections without SSL |
+
+## R16: Cloud Sync Server *(Planned — Sprint 5)*  `[LOG 05-04]`
+
+The sync server stores a cloud copy of account-associated notes. It is **not** a full CRUD proxy — clients always read and write to their local SQLite first; the sync server is the reconciliation point.
+
+| ID | Requirement |
+|----|-------------|
+| R16.1 | Sync push endpoint: `POST /sync/push` — client sends a list of note blobs (with `account_id`, `note_id`, `synced_at`) that are newer than the last known server timestamp; server stores them |
+| R16.2 | Sync pull endpoint: `GET /sync/pull?since=<timestamp>` — server returns all note blobs for the authenticated account that changed after `since`; client merges into local SQLite |
+| R16.3 | Conflict resolution strategy: **last-write-wins** based on `modified_at` timestamp inside the blob header; both versions are preserved in a `note_conflicts` table for 30 days so the user can review |
+| R16.4 | All sync endpoints require a valid bearer token (JWT); requests without a valid token return HTTP 401 |
+| R16.5 | Per-account data isolation: all server queries scoped by `account_id` from the token; no cross-account data access |
+| R16.6 | Sync server handles concurrent requests via connection pooling (SQLAlchemy pool) |
+| R16.7 | All sync server traffic over HTTPS/TLS; HTTP rejected |
+| R16.8 | API responses use JSON; error responses include `status`, `error`, `message` fields |
+| R16.9 | Rate limiting: 60 sync requests/minute per account; HTTP 429 with `Retry-After` on excess |
+| R16.10 | Sync server framework: FastAPI (async, auto-generates OpenAPI docs, native Pydantic validation; see ADR-11) |

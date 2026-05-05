@@ -58,6 +58,14 @@ Defines how we plan, build, review, and deliver work. Follows Agile/Scrum with f
 - Update backlog after each stand-up.
 - After completing or modifying a feature, update `planning/` docs (requirements, user stories, backlog, sprint plan).
 
+## Discussion List
+- Maintained in `Copilot/discussion-list.md`.
+- **At the start of every session:** Astra reads the discussion list and surfaces any open items that are blocking upcoming work.
+- **During or after work:** any unresolved question, deferred decision, or open design choice is added as a new item (D-xx) with a date, blocking sprint, context, and the specific question.
+- Add an item by saying “add that to the discussion list.”
+- When an item is resolved: mark it **Resolved**, record the decision and date. Do not delete it.
+- The discussion list is reviewed and updated at the end of each working session.
+
 ## AI in the Workflow
 - Use AI for drafting code, tests, docs, and design notes.
 - Treat AI output as proposals, not decisions — human reviews and approves all output.

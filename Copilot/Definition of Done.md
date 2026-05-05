@@ -10,7 +10,7 @@ A feature or fix is done when it meets these criteria and is ready to merge.
 - No unresolved warnings or regressions.
 
 ## Documentation
-- Working log entry in `Copilot/`.
+- Working log entry in `AI Working Log/`.
 - Relevant docs in `docs/` updated.
 - Corresponding docs updated after any code or config change.
 - Planning docs (`planning/`) updated after feature completion or modification.
@@ -40,12 +40,16 @@ A feature or fix is done when it meets these criteria and is ready to merge.
 - Backlog updated with status and follow-ups.
 
 ## Working Log Requirements
-For every completed item, record:
+Add a dated file to `AI Working Log/` (e.g., `working-log-YYYY-MM-DD.md`). For every completed item, record:
 - What changed.
 - Why.
 - Key decisions.
 - Tests performed.
 - Follow-up actions.
+
+## Discussion List
+- At the end of every session, review `Copilot/discussion-list.md` and add any new unresolved questions or deferred decisions as D-xx items.
+- A session is not fully "done" if there are open questions that will block the next sprint and have not been added to the discussion list.
 
 ## MVP and Incremental Delivery
 - Ship the smallest useful version first.

@@ -82,7 +82,7 @@
 
 **Acceptance Criteria:**
 - Settings stored in `<data-dir>/config.json`.
-- Known keys: `default_encrypt` (yes/no), `passphrase_min_length` (int), `data_dir` (path), `plugin_dir` (path), `deployment_mode` (personal/server), `allowed_plugins` (list). Free-form keys rejected. `DATABASE_URL` accepted from environment variable only, never stored in config.
+- Known keys: `default_encrypt` (yes/no), `passphrase_min_length` (int), `data_dir` (path), `plugin_dir` (path), `allowed_plugins` (list), `theme` (light/dark), `font_size` (int), `sync_server_url` (URL), `sync_auto_interval` (int, seconds, 0 = disabled). Free-form keys rejected. `DATABASE_URL` accepted from environment variable only, never stored in config.
 - `config set <key> <value>` → saves. `config get <key>` → retrieves. `config list` → shows all with defaults marked. `config reset <key>` → restores default.
 - Config file missing → all defaults used, file created on first `config set`.
 - Invalid value type for a key → error with expected type.
@@ -101,56 +101,92 @@
 - Export 1000+ notes within 2 seconds.
 - `export --encrypted` → prompt passphrase once, decrypt all encrypted notes for export. Without flag → encrypted notes exported as `[Encrypted Note]`.
 
-## US-9: GUI Layer *(Epic — deferred)*
-**As a** user, **I want** a graphical interface **so that** I can manage notes without the command line.
+## US-9: Personal GUI *(Planned — Sprint 4)*
+**As a** personal user, **I want** a simple graphical note-taking app **so that** I can manage notes without the command line, with an experience similar to mainstream note apps.
 
-**Note:** Deferred to a future sprint after CLI stabilization. No acceptance criteria until framework decision made. Tracked as epic, not sprint-ready.
-
-## US-10: Deployment Mode Selection
-**As a** user, **I want to** choose between personal and server deployment modes **so that** the app fits my usage scenario.
+**Source:** R11.1–R11.6 `[LOG 05-04]`
 
 **Acceptance Criteria:**
-- On first launch (no config), prompt: "Personal" or "Server" mode.
-- **Personal mode:** single-user, no login, local storage (SQLite). No account management commands exposed.
-- **Server mode:** multi-user, login required on every launch. Database backend (PostgreSQL). User isolation enforced at data layer.
-- Mode stored in `<data-dir>/config.json` under key `deployment_mode` (values: `personal` | `server`).
-- Mode switch requires `CONFIRM MODE SWITCH` typed exactly; warns that data migration is needed.
-- `config get deployment_mode` → shows current mode.
+- GUI exposes all CRUD operations (add, get, list, update, delete) through visual controls — no terminal required.
+- Note list displayed on the left; content editor displayed on the right. Minimal chrome; no unneeded sidebars or toolbars.
+- Passphrase for encrypted notes prompted via modal dialog (not terminal prompt).
+- Desktop app uses the same local SQLite store as the CLI; no server required. The core modules (`NoteStore`, `EncryptionEngine`, `PluginRegistry`) are shared directly — no duplication of logic.
+- GUI framework decided: PySide6 (ADR-13); `astranotes gui` launches a `QApplication` main window directly; no terminal remains open.
+- All data operations pass the same test suite as the CLI (shared core).
 
-## US-11: User Authentication (Server Mode)
-**As a** user in server mode, **I want to** log in before using the app **so that** my notes are isolated from other users.
+## US-13: Security & Injection Prevention
+**As a** user, **I want** the app to reject malicious inputs and enforce secure data access **so that** my notes and credentials cannot be compromised through injection attacks.
 
-**Acceptance Criteria:**
-- `register` → prompts for username and password interactively (`hide_input=True`). Username must be unique, 3–32 chars, alphanumeric + underscore only, case-insensitive uniqueness (`admin` == `Admin`). Password min 8 chars; password stored as bcrypt hash. Credentials never accepted as positional CLI arguments.
-- `login` → prompts for username and password interactively (`hide_input=True`). Correct credentials → session token written to `<data-dir>/.session` (JSON: `user_id`, `username`, `created_at`, `expires_at`). File permissions restricted to creator and administrator only. Wrong credentials → error, no session created.
-- Session tokens expire after 24 hours. Expired token → "Session expired, please log in again" error.
-- Auth rate limiting: 5 consecutive failed login attempts for a username → account locked for 5 minutes. Lockout tracked in `users` table (`failed_attempts`, `locked_until` columns).
-- All CRUD, search, export, config commands require active session in server mode. Unauthenticated or expired → "Please log in first" error.
-- `logout` → deletes session token file. Subsequent commands → login prompt.
-- `delete-account` → prompts for password confirmation + typed `CONFIRM DELETE ACCOUNT`. Purges entire per-user directory (`<data-dir>/users/<hashed_user_id>/`) including notes, filesystem payloads, audit logs, and exported files. Deletes the user record from database.
-- Each user's notes fully isolated; queries scoped by `user_id`. No cross-user access.
-- Personal mode → these commands hidden; no auth checks on any operation.
-
-## US-12: Database Storage Backend
-**As a** user, **I want** notes stored in a database **so that** the app handles concurrency, multi-user isolation, and large volumes safely.
+**Source:** R15 (Injection Prevention)
 
 **Acceptance Criteria:**
-- **Personal mode:** SQLite database at `<data-dir>/notes.db`. Zero-config, single file.
-- **Server mode:** PostgreSQL connection configured via `DATABASE_URL` environment variable only (never stored in config file to avoid credential leakage). Connection must use `sslmode=require`.
-- **Server mode user isolation (filesystem):** user-specific data stored under `<data-dir>/users/<hashed_user_id>/` where directory name is SHA-256 hash of `user_id` (prevents user enumeration). Contains: `audit.log`, `files/` (encrypted filesystem payloads), `exports/` (retrieved/exported files). Personal mode uses flat `<data-dir>/` layout. Entire per-user directory purged on `delete-account`.
-- Schema: `users` table (server mode only), `notes` table with columns: `note_id` (PK), `user_id` (FK, nullable in personal mode), `title` (plaintext, for fast listing), `format` (MIME type, plaintext), `encrypted_blob`, `nonce` (nullable), `salt` (nullable), `is_encrypted` (bool), `payload_location` (enum: `inline` | `filesystem`).
-- **Sandbox binary storage:** all content treated as a raw bitstream. Blob format: `[4-byte header_length][JSON header][raw payload bytes]`. Header: `{title, timestamps, tags, format (MIME), original_filename, size_bytes}`. Payload: raw content bytes.
-- **Retrieval:** on `get`, decrypt blob → parse header. If `format` starts with `text/` → display content as plaintext in terminal. If binary (`audio/*`, `video/*`, `image/*`, `application/*`) → write payload to per-user exports directory (`exports/<original_filename>`) with restricted file permissions. Display path and cleanup warning.
-- **Size threshold (5 MB):** payloads ≤ 5 MB stored inline in DB `encrypted_blob` column. Payloads > 5 MB: only encrypted notes may use filesystem storage under per-user directory at `files/<note_id>.<ext>` (server: `<data-dir>/users/<hashed_uid>/files/`; personal: `<data-dir>/files/`). AES-256-GCM encrypted before writing to disk; DB stores path reference in blob header. Unencrypted notes are always stored inline regardless of size. No plaintext files on disk.
-- When a note is deleted, both inline blob and any filesystem payload are deleted (orphan cleanup).
-- ACID transactions on every mutation; concurrent writes do not corrupt data.
-- Migration path: `migrate` CLI command converts existing `notes.json` → database. Backs up JSON file before migration. Alerts user that encrypted notes require passphrase entry. If user confirms, prompts passphrase per encrypted note; mismatch → skip with warning; skipped notes remain in JSON backup. After all notes migrated successfully, prompt user to securely delete the backup; auto-deleted if confirmed. If any notes were skipped, warn that backup contains un-migrated notes and must be kept.
-- Schema versioned via Alembic; future schema changes applied through migration scripts.
-- SQLite uses WAL mode with retry logic for concurrent CLI instances.
-- All database queries use parameterized statements via SQLAlchemy ORM; no raw SQL string interpolation.
-- User inputs validated at CLI boundary: null bytes and non-printable control characters rejected.
-- File path inputs validated against path traversal; reject `../` or absolute paths outside data-dir.
-- PostgreSQL connection requires `sslmode=require`; `DATABASE_URL` accepted from env var only, never stored in config.
-- PostgreSQL application role limited to DML only (no DDL privileges).
-- Disk-full errors (`ENOSPC`) caught and reported as actionable error message; no silent data loss.
-- Passphrase held in memory as Python string during session; not zeroizable (documented limitation).
+- All database queries use parameterized statements via SQLAlchemy ORM; no raw SQL string concatenation or f-string interpolation allowed. `[R15.1, R15.2]`
+- All user inputs validated at the CLI boundary: null bytes (`\x00`) and non-printable control characters (U+0000–U+001F except `\n`, `\t`) rejected in title, content, username, and search queries. Invalid input → clear error message. `[R15.3]`
+- PostgreSQL connection role limited to `SELECT`, `INSERT`, `UPDATE`, `DELETE` on application tables; no DDL privileges (`DROP`, `ALTER`, `CREATE`). `[R15.4]`
+- ANSI escape sequences and terminal control codes stripped from note content before rendering to terminal output. `[R15.5]`
+- Export output never evaluated or interpreted as code; special characters escaped. `[R15.6]`
+- Plugins receive note data as read-only copies; plugin code never receives `exec()`, `eval()`, or shell-access APIs; plugins cannot access raw DB connection. `[R15.7]`
+- File path inputs (`--data-dir`, `--output`, attachment paths) validated against path traversal (`../`, absolute paths outside data-dir); invalid paths rejected. `[R15.8]`
+- PostgreSQL connections must use `sslmode=require`; connections without SSL rejected at startup. `[R15.9]`
+
+## US-10: Local-First with Opt-In Account  `[LOG 05-04]`
+**As a** user, **I want** the app to work immediately without any setup or login **so that** I can start taking notes right away, and optionally add an account later to enable sync.
+
+**Source:** R12 `[LOG 05-04]`
+
+**Acceptance Criteria:**
+- App starts and all CRUD operations work with no configuration, no login prompt, and no mode selection.
+- Notes created without an account have `account_id = NULL` (device-local / anonymous).
+- `astranotes login` (or GUI login button) is available at any time but is never required to use the app.
+- When a user logs in for the first time on a device that already has anonymous notes, a one-time prompt appears: "You have N local notes. Associate them with your account? [Yes / No / Ask me for each]". The user's answer is recorded; the prompt never repeats.
+- After login, new notes automatically receive the active `account_id`. A `--local` flag allows creating a note that stays anonymous even while logged in.
+- `logout` detaches the session. Local notes (including account-associated ones) remain fully accessible offline. Cloud sync simply stops until next login.
+- Multiple accounts may coexist on one device; switching account shows that account's notes plus optionally anonymous notes.
+
+## US-11: Optional Account and Authentication  `[LOG 05-04]`
+**As a** user, **I want** to optionally create an account **so that** I can sync notes across devices and separate my notes from others on shared machines.
+
+**Source:** R13 `[LOG 05-04]`
+
+**Acceptance Criteria:**
+- `register` → prompts for username and password interactively (`hide_input=True`). Username: 3–32 chars, alphanumeric + underscore, case-insensitive unique. Password min 8 chars; stored as bcrypt hash. Credentials never accepted as positional arguments.
+- `login` → prompts interactively. Correct credentials → session token written to `<data-dir>/.session` (`account_id`, `username`, `created_at`, `expires_at`). File permissions restricted to owner only.
+- Wrong credentials → error, no session created. Rate limiting: 5 failures → account locked 5 minutes.
+- Session tokens expire after 24 hours. An expired session only blocks cloud sync and account-scoped visibility — **all local CRUD operations continue unaffected**.
+- `logout` → deletes session token. Local notes (including account-associated ones) remain readable and writable.
+- When logged in, note list shows the active account's notes plus anonymous notes. When logged out, only anonymous notes shown.
+- `delete-account` → prompts password + typed `CONFIRM DELETE ACCOUNT`. Detaches `account_id` from all local notes (sets to NULL); deletes account record from server; warns user that cloud copies will be deleted.
+- OAuth 2.0 / OpenID Connect (Google minimum, via authlib) supported as alternative login method in the desktop app. Provider token exchanged for a local session token. `[R13.13, R13.14]`
+
+**Acceptance Criteria:**
+## US-12: SQLite Local Store and Cloud Sync Backend  `[LOG 05-04]`
+**As a** user, **I want** notes stored reliably in a local SQLite database with an optional path to cloud sync **so that** my data is safe, fast, and portable.
+
+**Source:** R14, R16 `[LOG 05-04]`
+
+**Acceptance Criteria:**
+- Local store: SQLite at `<data-dir>/notes.db`. Zero-config, always-on. WAL mode with retry logic for concurrent CLI + GUI access.
+- `notes` table includes a nullable `account_id` column (`NULL` = anonymous/device-local; non-null = account-associated and sync-eligible), plus `synced_at` (nullable timestamp, `NULL` = never synced).
+- `accounts` table created locally on first `register` or `login`: `account_id` (UUID PK), `username`, `password_hash`, `created_at`, `failed_attempts`, `locked_until`.
+- Data directory is flat: `<data-dir>/notes.db`, `<data-dir>/files/`, `<data-dir>/exports/`, `<data-dir>/audit.log`. No per-user subdirectory structure on the local device.
+- **Sandbox binary storage:** blob format `[4-byte header_length][JSON header][raw payload bytes]`. Encrypted notes: entire blob is AES-256-GCM ciphertext.
+- **Retrieval:** decrypt blob → parse header. `text/*` → display in terminal. Binary → write to `<data-dir>/exports/<original_filename>` with restricted permissions; display path + cleanup warning.
+- **Size threshold:** payloads ≤ 5 MB inline in DB. Payloads > 5 MB: only encrypted notes may use filesystem storage at `<data-dir>/files/<note_id>.<ext>`; path stored in blob header. Unencrypted notes always stored inline.
+- `migrate` command converts `notes.json` → SQLite. Backs up JSON first. Prompts passphrase per encrypted note; mismatches → skip with warning. After success, prompts to delete backup.
+- **Cloud sync (requires account session):** `sync push` sends blobs newer than last `synced_at` to the sync server; `sync pull` fetches account notes updated after the last pull timestamp and merges into local SQLite. Conflict resolution: last-write-wins by `modified_at`; both versions preserved in `note_conflicts` table for 30 days.
+- Sync server uses PostgreSQL via `DATABASE_URL` env var only (`sslmode=require`). Schema versioned via Alembic.
+- All queries use SQLAlchemy ORM (parameterized). ACID transactions on every mutation. Disk-full errors reported without silent data loss.
+
+## US-14: Cloud Sync via Desktop App  `[LOG 05-04]`
+**As a** logged-in user, **I want** to sync my notes to a cloud server and access them from the desktop app on any device **so that** I'm not locked to a single machine.
+
+**Source:** R11.7–R11.10, R11.12, R13.13–R13.14, R16 `[LOG 05-04]`
+
+**Acceptance Criteria:**
+- Login via Google OAuth 2.0 / OpenID Connect (authlib) or local username/password. Both flows produce a local session token.
+- `sync push` sends all account-associated notes newer than last `synced_at` to the sync server. `sync pull` fetches notes updated since last pull and merges into local SQLite.
+- Conflict resolution: last-write-wins by `modified_at`. Both versions stored in `note_conflicts` for 30 days.
+- **Desktop app (Sprint 5B):** sync button triggers push/pull; login dialog (Google OAuth PKCE or local credentials) appears if no active session. Sync-status dot per note row reflects last sync timestamp.
+- **GUI (Sprint 4):** same local SQLite; sync button triggers push/pull.
+- All sync server traffic over HTTPS. Sync endpoints require valid JWT; return HTTP 401 otherwise.
+- Rate limiting: 60 sync requests/minute per account; HTTP 429 with `Retry-After` on excess.
