@@ -23,9 +23,7 @@ AstraNotes uses a **three-layer additive model** — each layer is independent a
 
 The CLI is the primary interface for Sprints 0–3. A PySide6 desktop app (Sprint 4: local CRUD; Sprint 5: sync added) shares the same core modules and SQLite local store. There is no browser-based surface — the sync server (Sprint 5) is a backend-only REST service.
 
-Two design layers are described:
-- **Sprint Zero (Planned):** target structure for `src/`; to be implemented.
-- **Planned:** design for backlog items beyond Sprint Zero.
+**Design status (updated 2026-05-11):** Sprint 0 CLI implementation was removed on 2026-05-11. Sprint 1 starts from a clean codebase. All module and class designs below are **planned** — not yet implemented. Source files will be created during Sprint 1 and later sprints. Open design gaps are tracked in `Copilot/discussion-list.md` (D-06 onward). `[LOG 05-11]`
 
 ---
 
@@ -689,7 +687,7 @@ Each entry records the decision, alternatives considered, rationale, and the sou
 
 **Decision:** **PySide6 desktop application.** `[LOG 05-04]` A single PySide6 `QApplication` is the GUI for both Sprint 4 (local CRUD) and Sprint 5 (sync added). There is no browser-based surface; the sync server is a backend-only REST service. PySide6 is chosen over PyQt6 (same Qt6 API; LGPL licence is safer for course use) and over Electron/Tkinter (native widgets, no Node.js toolchain, richer styling than Tkinter). The Sprint 5 sync button triggers push/pull; if no valid session token is found, the app presents an OAuth login dialog (opens system browser for Google consent via PKCE flow; redirect captured via `astranotes://callback` custom URI scheme — see ADR-12). Both sprint deliverables share one codebase; sync features are activated by the presence of a valid session token.
 
-Maps each requirement group to the implementing module, class, and test coverage. All entries are planned — no code exists yet.
+Maps each requirement group to the implementing module, class, and test coverage. All entries are **planned and unimplemented**. Sprint 0 source code was removed on 2026-05-11; no `src/` directory or tests exist. The module paths listed are the Sprint 1+ targets. `[LOG 05-11]`
 
 | Requirement | Module | Class / Function | Test |
 |-------------|--------|-----------------|------|
@@ -741,48 +739,38 @@ Maps each requirement group to the implementing module, class, and test coverage
 
 ---
 
-## 8. Directory Structure *(Sprint Zero target — not yet created)*
+## 8. Directory Structure
+
+**Current state (as of 2026-05-11):** Sprint 0 source deleted. `src/`, `tests/`, `plugins/`, `pytest.ini`, and `test_all.py` were removed. The planned Sprint 1 target structure is described in §2 (UML Package Diagram). `[LOG 05-11]`
 
 ```
 AstraNotes/
-├── src/
-│   ├── cli.py                  # Click CLI entry point
-│   └── core/
-│       ├── notes.py            # Note dataclass + NoteStore
-│       ├── security.py         # EncryptionEngine + KeyManager
-│       └── plugin_base.py      # PluginBase + PluginRegistry
-├── plugins/
-│   └── summary_plugin.py       # Example plugin (SummaryPlugin)
-├── tests/
-│   ├── conftest.py             # Shared fixtures (runner, temp dir)
-│   ├── test_core.py            # Unit tests (16 tests)
-│   ├── features/               # Gherkin BDD feature files (17 scenarios)
-│   │   ├── add_notes.feature
-│   │   ├── get_notes.feature
-│   │   ├── list_notes.feature
-│   │   ├── update_notes.feature
-│   │   └── delete_notes.feature
-│   └── steps/
-│       └── test_steps.py       # Behave step definitions
-├── docs/
-│   ├── prd.md                  # Product Requirements Document
-│   ├── design.md               # This file
-│   ├── bdd_testing.md
-│   └── test_workflow.md
-├── planning/
-│   ├── requirements.md
-│   ├── user-stories.md
-│   ├── backlog.md
-│   └── sprint-zero-plan.md
 ├── AI Working Log/
 │   ├── working-log-2026-04-08.md
 │   ├── working-log-2026-04-15.md
-│   └── working-log-2026-04-29.md
+│   ├── working-log-2026-04-29.md
+│   ├── working-log-2026-05-04.md
+│   ├── working-log-2026-05-05.md
+│   └── working-log-2026-05-10.md
 ├── Copilot/
 │   ├── Definition of Done.md
+│   ├── discussion-list.md
 │   └── Working Agreement.md
-├── test_all.py                 # Top-level test runner (unit + BDD)
-├── pytest.ini
+├── docs/
+│   ├── ai-use-disclosure.md
+│   ├── bdd-testing.md
+│   ├── design.md               # This file
+│   ├── prd.md
+│   ├── test-execution-evidence.md
+│   ├── test-workflow.md
+│   └── traceability-metrics.md
+├── planning/
+│   ├── backlog.md
+│   ├── requirements.md
+│   ├── sprint-zero-plan.md
+│   └── user-stories.md
+├── LICENSE
+├── README.md
 └── requirements.txt
 ```
 
