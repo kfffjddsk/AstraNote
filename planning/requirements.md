@@ -125,7 +125,7 @@ Persistent settings module.
 
 | ID | Requirement |
 |----|-------------|
-| R9.1 | Store settings in `<data-dir>/config.json` |
+| R9.1 | Store settings at a fixed OS-standard path: `%APPDATA%\astranotes\config.json` (Windows) / `~/.config/astranotes/config.json` (Linux/macOS). Config is separate from `data_dir`; moving `--data-dir` does not move the config file. `data_dir` is a key inside the config file; `--data-dir` CLI flag overrides it at runtime. `[D-06 resolved 2026-05-11]` |
 | R9.2 | CLI commands: `config set`, `config get`, `config list`, `config reset` |
 | R9.3 | Known keys only: `default_encrypt` (yes/no), `passphrase_min_length` (int), `data_dir` (path), `plugin_dir` (path), `allowed_plugins` (list), `theme` (light/dark), `font_size` (int), `sync_server_url` (URL), `sync_auto_interval` (int, seconds, 0 = disabled); free-form keys rejected |
 | R9.4 | Invalid value type for a key → error with expected type |

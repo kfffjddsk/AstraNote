@@ -157,7 +157,7 @@ Existing tools either expose note content to third-party services, provide no pe
 
 > Source: `[REQ R9]` `[US-7]` `[BL B-26, B-64]` `[LOG 04-15]`
 
-- Settings stored in `<data-dir>/config.json`. `[REQ R9.1]`
+- Settings stored at a fixed OS-standard path: `%APPDATA%\astranotes\config.json` (Windows) / `~/.config/astranotes/config.json` (Linux/macOS). Config is separate from `data_dir`; `--data-dir` overrides `config["data_dir"]` at runtime but does not move the config file. `[REQ R9.1]` `[D-06 resolved 2026-05-11]`
 - Known keys only: `default_encrypt`, `passphrase_min_length`, `data_dir`, `plugin_dir`, `allowed_plugins`, `theme`, `font_size`, `sync_server_url`, `sync_auto_interval`; free-form keys rejected. `[REQ R9.3]`
 - CLI: `config set / get / list / reset`. `[REQ R9.2]`
 - `DATABASE_URL` accepted from environment variable only; never stored in config. `[REQ R9.6]` `[BL B-64]`

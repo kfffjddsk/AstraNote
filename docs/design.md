@@ -257,7 +257,9 @@ The system is organized into five top-level packages. The CLI and desktop GUI de
 ┌──────────────────────────────┐
 │  ConfigStore  [planned]      │
 ├──────────────────────────────┤  [REQ R9] [BL B-26]
-│ - config_path: Path          │
+│ - config_path: Path          │  fixed OS path: %APPDATA%\astranotes\config.json
+│                              │  (~/.config/astranotes/config.json on Linux/macOS)
+│                              │  NOT inside data_dir  [D-06]
 │ - ALLOWED_KEYS: frozenset    │
 ├──────────────────────────────┤
 │ + get(key) → value           │
