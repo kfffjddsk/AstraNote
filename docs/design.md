@@ -398,34 +398,48 @@ PluginRegistry.call_hook("post_add_note", note)
  │      log warning, continue                   [REQ R4.7]
 ```
 
-### 4.5 Store Startup and Initialization — planned (resolves gaps T1, U5)
+### 4.5 Store Startup and Initialization — planned (resolves gaps T1, U5 — D-06 decided 2026-05-11)
 
-The CLI `cli()` group callback (invoked before every sub-command) must select the correct store class based on what exists in `<data-dir>`. This is the "store factory" required by gap T1.
+The CLI `cli()` group callback (invoked before every sub-command) runs the startup sequence below. `--help` and `--version` short-circuit before the callback runs (Click handles `--help` automatically; `@click.version_option` handles `--version`). `[D-06]` `[LOG 05-11]`
 
 ```
 cli() group callback (invoked before every command)
- │  data_dir = ctx.obj['data_dir']              [REQ R1.9] [BL B-36]
- │  validate data_dir is writable directory      [REQ R1.9] [BL B-36]
  │
- │  ConfigStore.load(data_dir / 'config.json')   [REQ R9.1] [BL B-26]
- │  (defaults used if file absent; no error)
+ │  1. ConfigStore.load(OS_CONFIG_PATH)          [REQ R9.1] [BL B-26]
+ │     OS_CONFIG_PATH:
+ │       Windows : %APPDATA%\astranotes\config.json
+ │       Linux   : ~/.config/astranotes/config.json
+ │       macOS   : ~/.config/astranotes/config.json
+ │     (defaults used if file absent; no error on first run)
  │
- │  ── if (data_dir / 'notes.db').exists() ──
- │       store = DatabaseStore(data_dir)         [REQ R14.1] Sprint 2 [BL B-42]
+ │  2. Resolve data_dir                          [REQ R1.9] [BL B-36]
+ │     ── if --data-dir flag given ──
+ │          data_dir = Path(ctx.params['data_dir'])
+ │     ── else ──
+ │          data_dir = Path(config['data_dir'])  (from ConfigStore)
+ │     validate data_dir is writable directory
  │
- │  ── elif (data_dir / 'notes.json').exists() ──
- │       store = NoteStore(notes_json_path)      [REQ R3.1] Sprint Zero
+ │  3. Store selection
+ │     ── if (data_dir / 'notes.db').exists() ──
+ │          store = DatabaseStore(data_dir)      [REQ R14.1] Sprint 2 [BL B-42]
  │
- │  ── else (first run) ──
- │       store = NoteStore(notes_json_path)      [REQ R3.1] Sprint Zero
+ │     ── elif (data_dir / 'notes.json').exists() ──
+ │          store = NoteStore(notes_json_path)   [REQ R3.1] Sprint 1
+ │
+ │     ── else (first run) ──
+ │          store = NoteStore(notes_json_path)   [REQ R3.1] Sprint 1
+ │
+ │  4. Plugin loading (VS Code activation-events model)  [REQ R4.6] [BL B-37]
+ │     PluginRegistry.load_manifests()  ← eager  (validates IDs + MIME ownership)
+ │     PluginRegistry.activate()        ← deferred to first relevant note open
  │
  │  ctx.obj['store'] = store
 ```
 
 Notes:
-- `key_manager` is **not** constructed at startup — each command that needs encryption constructs it lazily (only when `--encrypt yes` is given or when the targeted note has `encrypted=True`). `[REQ R2.1]`
-- `ConfigStore` is loaded before store selection so `data_dir` can be read from config when `--data-dir` is not given on the command line. `[REQ R9.1]`
-- This diagram resolves gap **T1** (no store factory) and gap **U5** (`ConfigStore` startup integration point). `[LOG 05-07]`
+- `ConfigStore` lives at a **fixed OS-standard path**, not inside `data_dir`. The `--data-dir` CLI flag overrides `config["data_dir"]` at runtime; it does not move the config file. `[D-06]` `[REQ R9.1]`
+- `key_manager` is **not** constructed at startup — each command that needs encryption constructs it lazily. `[REQ R2.1]`
+- This diagram resolves gap **T1** (store factory) and gap **U5** (`ConfigStore` integration point). `[D-06 resolved 2026-05-11]`
 
 ---
 
@@ -797,8 +811,8 @@ The new implementation MUST NOT call `key_manager.get_engine()` once per note in
 
 ### 9.2 Critical Transitions with No Design
 
-**T1 — No store factory or startup router**  
-The design describes `NoteStore` (JSON) and `DatabaseStore` (SQLAlchemy) as separate classes but provides no `StoreFactory`, `get_store()`, or CLI startup logic to select between them. The decision point requires checking whether `migrate` has been run (i.e., whether `notes.db` exists). No sequence diagram, no function, no class handles this startup selection. Every planned interaction diagram in §4.3 skips directly to `DatabaseStore` without showing how it was chosen.
+**T1 — No store factory or startup router** ✅ *Resolved — see §4.5 and D-06 (2026-05-11)*  
+~~The design describes `NoteStore` (JSON) and `DatabaseStore` (SQLAlchemy) as separate classes but provides no `StoreFactory`, `get_store()`, or CLI startup logic to select between them.~~ Resolved by §4.5 startup sequence diagram: a Click group callback performs store selection (`notes.db` present → `DatabaseStore`, else `NoteStore`). `[D-06]` `[LOG 05-11]`
 
 **T2 — No migration sequence diagram** `[REQ R14.7]` `[BL B-48]`  
 `migrate` is the most structurally complex command in the backlog: back up `notes.json`, repackage independent field-level ciphertexts (old format: title and content each separately base64-encoded) into the sandbox blob format (new format: `[4B len][JSON header][raw payload]` → single AES-256-GCM operation). These two formats are structurally incompatible. The design describes the two endpoints but provides no conversion path, no intermediate representation, and no error flow for skipped notes.
@@ -825,8 +839,8 @@ All four diagrams in §4 show only the happy path. Missing alternate flows: `Inv
 **U4 — `BlobCodec` has no designed call site**  
 §3.2 defines `BlobCodec` with four methods. No interaction diagram shows where it is called. It is unclear whether `DatabaseStore`, `NoteStore`, or both invoke it, and whether it is called inside `add()`, `save()`, or `get()`.
 
-**U5 — `ConfigStore` has no designed integration point**  
-`ConfigStore` appears in §3.2 but in no interaction diagram. It is not shown being read at startup, per-command, or by any other class (`PluginRegistry`, `AuthManager`, `StoreFactory`). The first-launch mode selection flow (R12.1) would require `ConfigStore` to be read before any other module is initialized, but this ordering is undesigned.
+**U5 — `ConfigStore` has no designed integration point** ✅ *Resolved — see §4.5 and D-06 (2026-05-11)*  
+~~`ConfigStore` appears in §3.2 but in no interaction diagram.~~ Resolved by §4.5: `ConfigStore` loads first in the Click group callback from a fixed OS-standard path (`%APPDATA%\astranotes\config.json` / `~/.config/astranotes/config.json`). `data_dir` is then resolved from config (with `--data-dir` CLI flag overriding). `[D-06]` `[LOG 05-11]`
 
 ---
 
