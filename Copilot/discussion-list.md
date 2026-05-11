@@ -19,6 +19,8 @@ When an item is resolved, mark it **Resolved** with a brief note and the date �
 
 **Decision needed:** Confirm startup sequence — (1) parse `--data-dir` CLI option; (2) `ConfigStore.load()`; (3) store selection (`notes.db` present → `DatabaseStore`, else `NoteStore`); (4) plugin loading. Assign responsibility to a named function or Click group callback in `src/cli.py`. `[LOG 05-11]`
 
+**Research direction:** VS Code defers extension activation until the extension's declared `activationEvents` are triggered — no extension is loaded at startup unless it subscribes to `onStartupFinished` or a matching event. Applying this model to step (4): `PluginRegistry` loads plugin manifests eagerly (to validate IDs and MIME-type ownership) but does not import or instantiate plugin code until the first relevant note is opened. This avoids slow-startup risk as the plugin count grows. See VS Code Extension Activation Events docs.
+
 ---
 
 ### D-07 — `Note.title` Dual-Field State Machine
@@ -51,6 +53,8 @@ Without these, implementers must invent error behavior that may not match REQ R5
 **Gap (U3):** ADR-05 and §3.2 both require that plugins receive a `copy.deepcopy()` of note data (not the live object) and that only plugins in the `allowed_plugins` config key are loaded. Neither constraint appears in the `PluginRegistry` class diagram, and no interaction diagram shows where the deep-copy happens or where the allowlist check is enforced (at `register_plugin()` vs. the startup loader). The class diagram is therefore inconsistent with ADR-05. `[BL B-56, B-69]`
 
 **Decision needed:** Update `PluginRegistry.call_hook()` to show the deep-copy step. Decide whether the allowlist check is inside `register_plugin()` or in the startup loader before calling it. Reflect in the class diagram and the §4.4 hook-dispatch diagram. `[LOG 05-11]`
+
+**Research direction:** VS Code runs each extension in a separate **Extension Host** process, so a misbehaving extension cannot corrupt VS Code's memory. AstraNotes cannot afford a full separate process per plugin, but VS Code's *in-process* API surface design is directly applicable: VS Code exposes only a frozen, read-only `vscode` API object to each extension — extensions never receive a reference to internal state objects. This maps directly onto the `copy.deepcopy()` requirement: `call_hook()` should pass a frozen dataclass copy (or a `types.MappingProxyType` wrapper) rather than the live `Note` object, mirroring VS Code's "extensions never touch internals" contract. For the allowlist, VS Code validates the `publisher.extensionName` identifier against a trusted-publisher list at install time — applying the same pattern: the allowlist check belongs in `register_plugin()` at registration time, not at call time, so a disallowed plugin is never in the registry at all.
 
 ---
 
@@ -87,6 +91,11 @@ Without these, implementers must invent error behavior that may not match REQ R5
 - **Sandboxing trust model:** D-05 noted "trust-level distinction between official and user-installed extensions to be designed during Sprint 2." What additional restrictions apply to user-installed extensions beyond the `PluginBase` allowlist + read-only copy model? Are there filesystem, network, or API restrictions? Does `EditorProvider` need a separate sandbox boundary from `PluginBase` hooks?
 
 **Decision needed:** (1) Define the manifest file format and all required/optional fields. (2) Define in concrete terms what each trust tier (official vs. user-installed) can and cannot do. `[LOG 05-11]`
+
+**Research direction:** VS Code's `package.json` extension manifest is the clearest available model:
+- **Required fields to adopt:** `publisher` (maps to our `plugin_id` namespace), `name`, `version` (semver), `engines` (maps to our minimum AstraNotes version), `main` (entrypoint module path), `contributes` (maps to our `supported_mime_types`).
+- **Trust tier model:** VS Code distinguishes *Marketplace-verified* (signed, publisher-verified) vs. *VSIX sideload* (user-installed from file). The practical enforcement is: sideloaded extensions show a persistent "not verified" badge and cannot access restricted APIs (e.g., proposed APIs). For AstraNotes: official extensions (pre-installed, `is_official: true`) are allowed to call the full `EditorProvider` + `PluginBase` API; user-installed extensions are restricted to `EditorProvider` only (no `PluginBase` hooks that can read all notes) until a future sandbox tier is designed.
+- **Manifest format recommendation:** JSON (`plugin.json`) rather than TOML — simpler to validate with `jsonschema`, no extra dependency, consistent with `package.json` familiarity.
 
 ---
 
