@@ -1,8 +1,10 @@
 # AstraNotes — Test Execution Evidence
 
+> **⚠ HISTORICAL RECORD (2026-05-07):** This document records the test execution results for the Sprint Zero codebase as it existed on 2026-05-04. On 2026-05-07, all source code (`src/`) and test files (`tests/`, `test_all.py`) were permanently deleted. **No code or tests currently exist.** This document is preserved as a reference for the expected test outcomes when Sprint Zero is reimplemented from scratch. The 33-test baseline shown below is the Sprint Zero target to re-achieve.
+
 ## Sprint Zero Gate Pass
 
-**Date:** 2026-05-04  
+**Date:** 2026-05-04 *(historical — code since removed)*
 **Baseline:** Sprint Zero exit criteria — 33 tests pass (`pytest -v`)  
 **Environment:** Python 3.12.10, pytest 9.0.2, pytest-bdd 8.1.0, Windows (PowerShell)  
 **Command:** `python -m pytest tests/ -v --tb=short`

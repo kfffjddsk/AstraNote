@@ -2,33 +2,33 @@
 
 Items ordered by priority. Status reflects current state.
 
-## Done
+## Sprint Zero — Not Started
 
-| ID | Item | User Story | Status |
-|----|------|------------|--------|
-| B-01 | Add unencrypted note via CLI | US-1 | Done |
-| B-02 | Add encrypted note with passphrase prompt | US-2 | Done |
-| B-03 | Reject empty title/content on add | US-1 | Done |
-| B-04 | Get unencrypted note by ID | US-1 | Done |
-| B-05 | Get encrypted note with correct passphrase | US-2 | Done |
-| B-06 | Reject wrong passphrase on get | US-2 | Done |
-| B-07 | List notes with encrypted content hidden | US-1, US-2 | Done |
-| B-08 | Update unencrypted note | US-1 | Done |
-| B-09 | Update encrypted note with passphrase | US-2 | Done |
-| B-10 | Reject wrong passphrase on update | US-2 | Done |
-| B-11 | Delete unencrypted note | US-1 | Done |
-| B-12 | Delete encrypted note with passphrase | US-2 | Done |
-| B-13 | Reject wrong passphrase on delete | US-2 | Done |
-| B-14 | Error handling for missing note IDs | US-1 | Done |
-| B-15 | JSON persistence with save-on-mutate | US-3 | Done |
-| B-16 | Preserve encrypted records on no-key load | US-3 | Done |
-| B-17 | AES-256-GCM encryption with PBKDF2 | US-2 | Done |
-| B-18 | Plugin base class and registry | US-4 | Done *(test debt: B-83)* |
-| B-19 | `--data-dir` global option | US-1 | Done |
-| B-20 | BDD test coverage (17 scenarios) | US-1–US-4 | Done |
-| B-21 | Unit tests for core modules (16 tests) | US-1–US-3 | Done |
-| B-22 | Stress test for 1001 notes | US-3 | Done |
-| B-23 | Non-zero exit codes on CLI errors | US-1 | Done |
+| ID | Item | User Story | Priority |
+|----|------|------------|----------|
+| B-01 | Add unencrypted note via CLI | US-1 | High |
+| B-02 | Add encrypted note with passphrase prompt | US-2 | High |
+| B-03 | Reject empty title/content on add | US-1 | High |
+| B-04 | Get unencrypted note by ID | US-1 | High |
+| B-05 | Get encrypted note with correct passphrase | US-2 | High |
+| B-06 | Reject wrong passphrase on get | US-2 | High |
+| B-07 | List notes with encrypted content hidden | US-1, US-2 | High |
+| B-08 | Update unencrypted note | US-1 | High |
+| B-09 | Update encrypted note with passphrase | US-2 | High |
+| B-10 | Reject wrong passphrase on update | US-2 | High |
+| B-11 | Delete unencrypted note | US-1 | High |
+| B-12 | Delete encrypted note with passphrase | US-2 | High |
+| B-13 | Reject wrong passphrase on delete | US-2 | High |
+| B-14 | Error handling for missing note IDs | US-1 | High |
+| B-15 | JSON persistence with save-on-mutate | US-3 | High |
+| B-16 | Preserve encrypted records on no-key load | US-3 | High |
+| B-17 | AES-256-GCM encryption with PBKDF2 | US-2 | High |
+| B-18 | Plugin base class and registry | US-4 | High |
+| B-19 | `--data-dir` global option | US-1 | High |
+| B-20 | BDD test coverage (17 scenarios) | US-1–US-4 | High |
+| B-21 | Unit tests for core modules (16 tests) | US-1–US-3 | High |
+| B-22 | Stress test for 1001 notes | US-3 | High |
+| B-23 | Non-zero exit codes on CLI errors | US-1 | High |
 
 ## Backlog (Not Started)
 
@@ -99,8 +99,7 @@ Items ordered by priority. Status reflects current state.
 | ID | Description | US | Priority |
 |----|-------------|----|----------|
 | B-84 | PySide6 desktop GUI skeleton (ADR-13 decided) — `astranotes gui` launches `QApplication`; two-pane layout (note list + sync-status dot left, editor right); toolbar; passphrase `QDialog` | US-9 | High |
-| B-85 | Desktop GUI: full CRUD screens — add, view, list, edit, delete notes with passphrase dialog for encrypted notes | US-9 | High |
-
+| B-85 | Desktop GUI: full CRUD screens — add, view, list, edit, delete notes with passphrase dialog for encrypted notes | US-9 | High || B-97 | System tray icon — minimize to tray on window close; tray menu: Show/Hide, Quit; `QSystemTrayIcon` + `QMenu`; tray icon visible only while app is running | US-9 | Medium |
 ### Sprint 5 — Sync Server + Sync-Enabled Desktop Client  *(Planned)*
 
 | ID | Description | US | Priority |

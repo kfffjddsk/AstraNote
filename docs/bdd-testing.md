@@ -10,6 +10,8 @@ BDD is the primary approach for CLI testing. All CLI integration tests are Gherk
 
 ## Structure
 
+> **Note (2026-05-07):** The structure below is the **Sprint Zero target design**. No test files exist yet — `tests/` is empty. All feature files, step definitions, and fixtures listed here are planned, not current state.
+
 ```
 tests/
 ├── features/          # .feature files describing behaviors

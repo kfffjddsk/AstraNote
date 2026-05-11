@@ -236,8 +236,9 @@ Existing tools either expose note content to third-party services, provide no pe
 
 > Source: `planning/backlog.md` Done and Backlog sections. `[BL]`
 
-### Completed (Sprint Zero)
-23 backlog items done `[BL B-01–B-23]`, covering: full CRUD, AES-256-GCM encryption, passphrase enforcement on all operations, JSON persistence, plugin base/registry, BDD coverage (17 scenarios), 16 unit tests, stress test (1001 notes), non-zero exit codes.
+### Sprint Zero — Not Yet Started
+
+> **Note (2026-05-07):** All Sprint Zero source code and test files were removed. No code or tests currently exist. All B-01–B-23 items below are planned but not yet implemented.
 
 ### High-Priority Backlog (Not Started)
 
@@ -248,8 +249,8 @@ Existing tools either expose note content to third-party services, provide no pe
 | B-33 | Fix encrypted-note corruption on unencrypted update/delete | `[REQ R2.12]` |
 | B-34 | Reject empty/short passphrase (min 8 chars) | `[REQ R2.11]` |
 | B-35 | Corrupt JSON recovery with `.bak` backup | `[REQ R1.10]` |
-| B-41 | Deployment mode first-launch prompt | `[REQ R12.1]` |
-| B-42 | SQLite backend (personal mode) | `[REQ R14.1]` |
+| B-41 | First-login anonymous note association prompt (one-time, only if anonymous notes exist): Yes / No / Ask me for each | `[REQ R12.3]` |
+| B-42 | SQLite local store — always-on, zero-config, at `<data-dir>/notes.db`; WAL mode; `account_id` nullable FK + `synced_at` nullable timestamp on `notes` table | `[REQ R14.1]` |
 | B-43 | Sandbox binary blob storage | `[REQ R2.9]` `[REQ R14.4]` |
 | B-49 | Hybrid storage: 5 MB threshold + filesystem payloads | `[REQ R14.8]` |
 | B-51 | SQLAlchemy ORM — no raw SQL | `[REQ R15.2]` |
@@ -259,7 +260,7 @@ Existing tools either expose note content to third-party services, provide no pe
 | B-59 | Session token file with 24h expiry | `[REQ R13.5]` |
 | B-74 | Plaintext `title`/`format` columns for fast listing | `[REQ R1.3]` `[REQ R14.5]` |
 | B-75 | Session token file permissions | `[REQ R13.5]` |
-| B-77 | Per-user directories with hashed user IDs (server mode) | `[REQ R14.13]` |
+| B-77 | Flat data directory — always `<data-dir>/notes.db`, `<data-dir>/files/`, `<data-dir>/exports/`, `<data-dir>/audit.log`; no per-user subdirectory structure on the local device | `[REQ R14.13]` |
 | B-78 | Export file permissions + `export --cleanup` | `[REQ R10.7]` |
 | B-81 | Per-user audit log deletion on `delete-account` | `[REQ R8.3]` |
 
@@ -267,7 +268,3 @@ Existing tools either expose note content to third-party services, provide no pe
 GUI layer umbrella (`[BL B-27]`) superseded by two concrete sprints:
 - **Sprint 4 — Desktop GUI** (B-84, B-85): PySide6 desktop app sharing core modules; ADR-13 decided. `[LOG 05-04]`
 - **Sprint 5 — Sync Server + Sync-Enabled Desktop Client** (B-86–B-95): FastAPI push/pull sync server + PySide6 sync-enabled desktop UI with Google OAuth; ADR-11/12/13 decided. `[LOG 05-04]`
-
----
-
-*This document was drafted by Astra (GitHub Copilot) from existing planning artifacts and is subject to human review before acceptance per the Working Agreement (`Copilot/Working Agreement.md`).*

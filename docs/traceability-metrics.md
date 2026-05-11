@@ -1,15 +1,18 @@
-# AstraNotes — Traceability Metrics (v2.0)
+# AstraNotes — Traceability Metrics (v2.1)
 
-**Version:** 2.0  
-**Date:** May 4, 2026  
+**Version:** 2.1  
+**Date:** May 7, 2026  
 **Status:** Draft — under review  
 **Owner:** Human team member  
 **AI Partner:** Astra (GitHub Copilot)
 
+> **Re-classification notice (2026-05-07):** All Sprint Zero source code and test files were removed on 2026-05-07. All items previously marked **Fully Traced** (29 items) or **Partially Traced** (17 items) are now reclassified as **Weakly Traced** — the design and backlog evidence remains valid; no code or tests exist yet. Individual row statuses are preserved for historical reference; the §4 Metrics Summary reflects the new ground truth.
+
 > Source documents: `planning/requirements.md`, `planning/user-stories.md`, `planning/backlog.md`,
-> `docs/design.md`, `src/`, `tests/`.
-> All 121 discrete requirement IDs from `planning/requirements.md` are covered.
-> Stable IDs FR-1–FR-107 (functional) and NFR-1–NFR-14 (non-functional) are assigned below.
+> `docs/design.md`.
+> (Source code under `src/` and tests under `tests/` were removed 2026-05-07 and are not referenced.)
+> All 138 discrete requirement IDs from `planning/requirements.md` are covered.
+> Stable IDs FR-1–FR-127 (functional) and NFR-1–NFR-14 (non-functional) are assigned below.
 
 
 ---
@@ -46,9 +49,9 @@
 
 | Status | Criteria |
 |---|---|
-| **Fully Traced** | Named implementing class/function in `src/` AND design describes the mechanism AND ≥1 automated test (BDD or unit) covers it |
-| **Partially Traced** | Implementation exists but is incomplete or buggy; OR design is inaccurate; OR tests are missing for a coded behaviour |
-| **Weakly Traced** | Backlog item and/or design stub exists (class diagram, ADR, data model) but no code written and no call-site interaction diagram |
+| **Fully Traced** | Named implementing class/function in `src/` AND design describes the mechanism AND ≥1 automated test (BDD or unit) covers it. *No items currently qualify — all code was removed 2026-05-07.* |
+| **Partially Traced** | Implementation exists but is incomplete or buggy; OR design is inaccurate; OR tests are missing for a coded behaviour. *No items currently qualify — no code exists.* |
+| **Weakly Traced** | Backlog item and/or design stub exists (class diagram, ADR, data model, interaction diagram) but no code written and no automated test |
 | **Not Traced** | Requirement does not appear in any design diagram, ADR, backlog item, or test |
 
 ---
@@ -337,13 +340,15 @@ Five elements appear in the design or source code without a traceable requiremen
 | Metric | Count | % of Total |
 |---|---|---|
 | Total requirements reviewed | 138 | 100% |
-| **Fully Traced** | 29 | 21% |
-| **Partially Traced** | 17 | 12% |
-| **Weakly Traced** | 75 | 54% |
+| **Fully Traced** | 0 | 0% |
+| **Partially Traced** | 0 | 0% |
+| **Weakly Traced** | 121 | 88% |
 | **Not Traced** | 17 | 12% |
-| Stable FR IDs assigned | 127 (FR-72–FR-75 updated; FR-108–FR-127 new) | — |
+| Stable FR IDs assigned | 127 | — |
 | Stable NFR IDs assigned | 14 | — |
-| UML elements without a requirement | 5 | — |
+| UML elements without a requirement | 4 | — |
+
+> **Note (2026-05-07):** All Sprint Zero source code and tests were removed. All 29 previously Fully Traced items and 17 previously Partially Traced items are now Weakly Traced (design evidence only; no code; no tests). `Note.metadata` orphan removed from design — UML orphan count reduced from 5 to 4. See [docs/design.md](design.md) v1.3 for updated class diagrams and interaction diagrams.
 
 > **Note `[LOG 05-04]`:** R11 expanded from 4 items to 12 (split into Desktop GUI Sprint 4 + Sync-Enabled Desktop Client Sprint 5 — one PySide6 app); R12 rewritten for three-layer model (8 → 7 items); R13 updated for optional auth (15 → 14 items, removed FR-119); R16 rewritten as sync server with push/pull model. Total 141 → 139. FR-114 dropped (offline covered by FR-76 — local SQLite is always on, not a cache). Total 139 → 138. `[LOG 05-04]`
 
@@ -351,12 +356,12 @@ Five elements appear in the design or source code without a traceable requiremen
 
 | Requirement Group | Total | FT | PT | WT | NT |
 |---|---|---|---|---|---|
-| R1 — Note Management (CRUD) | 10 | 7 | 3 | 0 | 0 |
-| R2 — Encryption | 16 | 7 | 5 | 4 | 0 |
-| R3 — Data Persistence | 8 | 5 | 2 | 1 | 0 |
-| R4 — Plugin System | 10 | 4 | 5 | 1 | 0 |
-| R5 — CLI Interface | 3 | 2 | 1 | 0 | 0 |
-| R6 — Testing (NFR) | 5 | 4 | 1 | 0 | 0 |
+| R1 — Note Management (CRUD) | 10 | 0 | 0 | 7 | 3 |
+| R2 — Encryption | 16 | 0 | 0 | 16 | 0 |
+| R3 — Data Persistence | 8 | 0 | 0 | 8 | 0 |
+| R4 — Plugin System | 10 | 0 | 0 | 9 | 1 |
+| R5 — CLI Interface | 3 | 0 | 0 | 3 | 0 |
+| R6 — Testing (NFR) | 5 | 0 | 0 | 5 | 0 |
 | R7 — Override Policy | 5 | 0 | 0 | 5 | 0 |
 | R8 — Audit Trail | 6 | 0 | 0 | 6 | 0 |
 | R9 — Configuration | 6 | 0 | 0 | 6 | 0 |
@@ -367,7 +372,7 @@ Five elements appear in the design or source code without a traceable requiremen
 | R14 — Database Storage | 13 | 0 | 0 | 13 | 0 |
 | R15 — Injection Prevention (NFR) | 9 | 0 | 0 | 9 | 0 |
 | R16 — Sync Server (updated) `[LOG 05-04]` | 8 | 0 | 0 | 3 | 5 |
-| **Total** | **138** | **29** | **17** | **79** | **13** |
+| **Total** | **138** | **0** | **0** | **121** | **17** |
 
 ---
 
@@ -415,5 +420,3 @@ Five elements appear in the design or source code without a traceable requiremen
 | FR-82–FR-94 (Auth) Weakly Traced | Sprint 2 scope; ADRs and class stubs provide baseline |
 
 ---
-
-*This document was drafted by Astra (GitHub Copilot) from existing source code, planning artifacts, and working logs. Subject to human review before acceptance per `Copilot/Working Agreement.md`.*

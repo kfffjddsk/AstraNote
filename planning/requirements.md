@@ -115,7 +115,7 @@ Append-only log for security operations.
 | R8.1 | Log format: one JSON object per line with fields: timestamp (ISO 8601), operation, note_id (nullable), outcome, detail (optional) |
 | R8.2 | Log encryption, decryption, passphrase attempts, overrides, plugin loads, login, logout, registration, account deletion, mode switches, migration, and export operations |
 | R8.3 | Log is append-only during normal operation; entries never modified. Per-user log deleted only on `delete-account` (full user data purge) |
-| R8.4 | Personal mode: audit log at `<data-dir>/audit.log`. Server mode: per-user audit log at `<data-dir>/users/<hashed_user_id>/audit.log` (SHA-256 of `user_id`); missing file → created on first write |
+| R8.4 | Audit log at `<data-dir>/audit.log` on the local device (flat layout per ADR-09); missing file → created on first write. On the sync server (if self-hosted), a separate audit log is maintained per-account. Per-user log deleted from server on `delete-account`. `[LOG 05-04]` |
 | R8.5 | CLI `audit` command with `--limit N`, `--operation <type>`, `--since <date>` filters |
 | R8.6 | Audit file unwritable → warn, do not block the operation |
 

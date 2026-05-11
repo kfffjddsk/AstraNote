@@ -1,7 +1,7 @@
 # AstraNotes — Design Document
 
-**Version:** 1.2  
-**Date:** May 4, 2026  
+**Version:** 1.3  
+**Date:** May 7, 2026  
 **Status:** Draft — under review  
 **Owner:** Human team member  
 **AI Partner:** Astra (GitHub Copilot)
@@ -24,8 +24,8 @@ AstraNotes uses a **three-layer additive model** — each layer is independent a
 The CLI is the primary interface for Sprints 0–3. A PySide6 desktop app (Sprint 4: local CRUD; Sprint 5: sync added) shares the same core modules and SQLite local store. There is no browser-based surface — the sync server (Sprint 5) is a backend-only REST service.
 
 Two design layers are described:
-- **Implemented (Sprint Zero):** what exists in `src/` today.
-- **Planned:** design for backlog items not yet coded, drawn from requirements and working logs.
+- **Sprint Zero (Planned):** target structure for `src/`; to be implemented.
+- **Planned:** design for backlog items beyond Sprint Zero.
 
 ---
 
@@ -91,7 +91,7 @@ The system is organized into five top-level packages. The CLI and desktop GUI de
 
 ## 3. Class Diagrams
 
-### 3.1 Implemented Classes
+### 3.1 Sprint Zero Classes (Planned)
 
 ```
 ┌──────────────────────────────┐
@@ -103,7 +103,6 @@ The system is organized into five top-level packages. The CLI and desktop GUI de
 │ + content: str               │
 │ + created_at: str  (ISO UTC) │
 │ + modified_at: str (ISO UTC) │
-│ + metadata: dict             │
 │ + encrypted: bool            │
 │ + encrypted_title: str|None  │
 ├──────────────────────────────┤
@@ -152,6 +151,27 @@ The system is organized into five top-level packages. The CLI and desktop GUI de
   Wire format: [16B salt][12B IV][16B GCM tag][ciphertext] → base64
 
 ┌──────────────────────────────┐
+│  EditorProvider  <<ABC>>     │  extension type for content editing/viewing  [D-04, D-05]
+├──────────────────────────────┤
+│ + plugin_id: str             │  unique across all extensions  [D-05]
+│ + name: str                  │
+│ + version: str               │
+│ + is_official: bool          │  True = pre-installed official extension  [D-05]
+│ + supported_mime_types: list │  e.g. ['text/html', 'text/markdown']; each type may only be
+│                              │  owned by one active extension at a time  [D-05]
+├──────────────────────────────┤
+│ + open_editor(note) → widget │  returns a QWidget embedded in the file display window
+│ + get_content() → bytes      │  serializes editor state to raw bytes (blob payload)
+│ + show_settings()            │  optional; extension-owned settings panel
+└──────────────────────────────┘
+  Extension decisions (D-05, 2026-05-10): install/remove via app “Add Extension” menu;
+  official badge label; MIME conflicts forbidden (one active owner per type); install
+  blocked on conflict — user must disable/uninstall conflicting extension first, or install
+  new extension disabled; re-activating a conflicted extension also blocked.
+  Manifest format + sandboxing TBD (see D-05 still-open items).
+  Font size: inherits system setting; extension show_settings() may override for its content area.
+
+┌──────────────────────────────┐
 │  PluginBase  <<ABC>>         │
 ├──────────────────────────────┤
 │ + name: str                  │
@@ -173,6 +193,18 @@ The system is organized into five top-level packages. The CLI and desktop GUI de
 │ + call_hook(name, *args)     │
 └──────────────────────────────┘
 ```
+
+**`Note.title` field state rules** *(resolves gap U1)*
+
+| `encrypted` | Key present | Decryption | `title` value | `encrypted_title` value |
+|-------------|-------------|------------|---------------|------------------------|
+| `False` | N/A | N/A | Actual title (plaintext) | `None` |
+| `True` | Yes (correct key) | Success | Actual title (decrypted in memory) | AES-256-GCM ciphertext |
+| `True` | No key or wrong key | `InvalidTag` / no key | `"[Encrypted Note]"` (display placeholder) | AES-256-GCM ciphertext |
+
+**Rule:** `title` is NEVER the authoritative source for encrypted notes. `encrypted_title` holds the authoritative ciphertext. When `NoteStore` loads an encrypted note with the correct key, it decrypts `encrypted_title` and sets `title` to the plaintext for in-memory use only. `"[Encrypted Note]"` is a **display-only placeholder** — no code path must branch on `title == "[Encrypted Note]"` to detect a wrong passphrase; that is Pitfall B2 (§9.1).
+
+> `Note.metadata` has been removed from the class diagram above. No requirement defines a freeform metadata field (R2.9 places all metadata inside the sandbox blob header). Sprint Zero notes do not use a `metadata` dict. The field may be re-introduced in Sprint 2 alongside `BlobCodec` if a use case is identified. `[LOG 05-07]`
 
 ### 3.2 Planned Classes (Backlog)
 
@@ -237,29 +269,41 @@ The system is organized into five top-level packages. The CLI and desktop GUI de
 └──────────────────────────────┘
 
 ┌──────────────────────────────┐
-│  DesktopGUI  [planned]        │  PySide6 desktop app (Sprint 4: CRUD; Sprint 5: sync)
+│  DesktopGUI  [planned]       │  PySide6 desktop app (Sprint 4: CRUD; Sprint 5: sync)
 ├──────────────────────────────┤  [REQ R11.1–R11.12] [BL B-84, B-85, B-89, B-90]
 │ - store: DatabaseStore       │  [US-9, US-14] [ADR-13 decided]
 │ - key_manager: KeyManager    │
 │ - auth_manager: AuthManager  │
 ├──────────────────────────────┤
-│ + show_note_list()           │  QListWidget left pane
-│ + show_note(note_id)         │  QTextEdit right pane
+│ + show_file_list()           │  file list — QListWidget left pane (VS Code Explorer-style)
+│ + show_file(note_id)         │  file display window — right pane; loads EditorProvider widget
 │ + prompt_passphrase() → str  │  QDialog modal, auto-focus, Escape closes
-│ + on_add() / on_edit()       │
+│ + on_add()                   │  shows "+" picker dropdown: registered format types
+│                              │  (e.g. Text | Image | Video | Recording | …);
+│                              │  opens the EditorProvider extension for chosen MIME type;
+│                              │  greyed out if no extension registered for that type  [D-04]
+│ + on_edit()                  │  opens EditorProvider extension for note's MIME type
 │ + on_delete()                │
 │ + on_sync()                  │  Sprint 5: triggers push/pull; prompts login if no session
+│ + setup_tray()               │  QSystemTrayIcon + QMenu (Show/Hide, Quit)  [BL B-97]
+│ + on_tray_activated(reason)  │  double-click or single-click → show window
 │ + show_settings()            │  QDialog (tabbed):
 │                              │    General tab — data directory, default encryption on/off,
-│                              │      min passphrase length, theme (light/dark), font size
-│                              │    Account tab (Sprint 5) — username, login/logout button,
-│                              │      delete-account button
+│                              │      min passphrase length, plugin directory
+│                              │    Appearance tab — theme (light/dark, applied immediately
+│                              │      on selection  [D-03]), font size (system UI only;
+│                              │      does not affect note content  [D-03])
 │                              │    Sync tab (Sprint 5) — sync server URL, auto-sync interval
-│                              │      (Off / 5 min / 15 min / 1 hr), last-synced timestamp
+│                              │      (numeric entry ≥5 s or Off=0; inline validation  [D-03]),
+│                              │      last-synced timestamp
+│                              │  Account login/logout: dedicated menu action, not in Settings  [D-03]
 └──────────────────────────────┘
   Framework: PySide6 (ADR-13 decided)  [LOG 05-04]
   Startup: `astranotes gui` → QApplication → main window opens → blocks until window closed
-  Layout: two-pane (note list + sync-status dot left; title + editor right); menu bar; toolbar
+  Layout: two-pane; left = file list (VS Code Explorer-style; note list + sync-status dot);
+          right = file display window (hosts EditorProvider widget); menu bar; toolbar
+  **No built-in editor:** all content creation and viewing delegated to EditorProvider extensions
+  (see D-04, D-05). Official extensions pre-installed; can be replaced by user-installed ones.
   Sprint 4 dependency: core modules only; no sync server required
   Sprint 5 dependency: adds sync server calls (HTTPS push/pull) and OAuth login flow
 
@@ -289,7 +333,7 @@ The system is organized into five top-level packages. The CLI and desktop GUI de
 
 ## 4. Component Interactions
 
-### 4.1 Add Note (unencrypted) — current
+### 4.1 Add Note (unencrypted) — planned (Sprint Zero)
 
 ```
 User
@@ -298,24 +342,27 @@ User
 cli.add()
  │  validates title/content not empty          [REQ R1.6]
  │  NoteStore(path, key_manager=None)
- │  note_id = len(list) + 1                    [BL B-31 — gap-safe ID pending]
+ │  note_id = str(uuid.uuid4())                [REQ R1.8] [BL B-31]
  │  Note(id, title, content, encrypted=False)
  │  store.add(note)
  │    └─ save() → writes notes.json            [REQ R3.2]
  ▼
-"Note 'T' added with ID 1 (unencrypted)"
+"Note 'T' added with ID <uuid> (unencrypted)"
 ```
 
-### 4.2 Add Note (encrypted) — current
+### 4.2 Add Note (encrypted) — planned (Sprint Zero)
 
 ```
 User
  │  astranotes add --title "T" --content "C" --encrypt yes
  ▼
 cli.add()
- │  ensure_store() → prompts passphrase        [REQ R2.1]
+ │  prompt passphrase (first entry)            [REQ R2.1]
+ │  prompt passphrase (confirm)                [REQ R2.2] [BL B-32]
+ │  mismatch → print error, abort              [REQ R2.2]
  │  KeyManager(passphrase)
  │  NoteStore(path, key_manager)
+ │  note_id = str(uuid.uuid4())               [REQ R1.8] [BL B-31]
  │  Note(id, title, content, encrypted=True)
  │  store.add(note)
  │    └─ save()
@@ -323,7 +370,7 @@ cli.add()
  │         EncryptionEngine.encrypt(title)
  │         writes notes.json                   [REQ R3.2]
  ▼
-"Note 'T' added with ID 1 (encrypted)"
+"Note 'T' added with ID <uuid> (encrypted)"
 ```
 
 ### 4.3 Add Note — planned (post-sandbox-blob)
@@ -353,11 +400,40 @@ PluginRegistry.call_hook("post_add_note", note)
  │      log warning, continue                   [REQ R4.7]
 ```
 
+### 4.5 Store Startup and Initialization — planned (resolves gaps T1, U5)
+
+The CLI `cli()` group callback (invoked before every sub-command) must select the correct store class based on what exists in `<data-dir>`. This is the "store factory" required by gap T1.
+
+```
+cli() group callback (invoked before every command)
+ │  data_dir = ctx.obj['data_dir']              [REQ R1.9] [BL B-36]
+ │  validate data_dir is writable directory      [REQ R1.9] [BL B-36]
+ │
+ │  ConfigStore.load(data_dir / 'config.json')   [REQ R9.1] [BL B-26]
+ │  (defaults used if file absent; no error)
+ │
+ │  ── if (data_dir / 'notes.db').exists() ──
+ │       store = DatabaseStore(data_dir)         [REQ R14.1] Sprint 2 [BL B-42]
+ │
+ │  ── elif (data_dir / 'notes.json').exists() ──
+ │       store = NoteStore(notes_json_path)      [REQ R3.1] Sprint Zero
+ │
+ │  ── else (first run) ──
+ │       store = NoteStore(notes_json_path)      [REQ R3.1] Sprint Zero
+ │
+ │  ctx.obj['store'] = store
+```
+
+Notes:
+- `key_manager` is **not** constructed at startup — each command that needs encryption constructs it lazily (only when `--encrypt yes` is given or when the targeted note has `encrypted=True`). `[REQ R2.1]`
+- `ConfigStore` is loaded before store selection so `data_dir` can be read from config when `--data-dir` is not given on the command line. `[REQ R9.1]`
+- This diagram resolves gap **T1** (no store factory) and gap **U5** (`ConfigStore` startup integration point). `[LOG 05-07]`
+
 ---
 
 ## 5. Data Model
 
-### 5.1 Current: `notes.json`
+### 5.1 Planned: `notes.json` (pre-migration, Sprint Zero)
 
 ```json
 {
@@ -499,7 +575,7 @@ Each entry records the decision, alternatives considered, rationale, and the sou
 ---
 
 ### ADR-04: AES-256-GCM with PBKDF2 (100 000 iterations)  
-**Status:** Accepted (implemented)  `[SRC security.py]` `[REQ R2]` `[LOG 04-15]`
+**Status:** Accepted (planned)  `[REQ R2]` `[LOG 04-15]`
 
 **Context:** Notes may contain sensitive personal information. Encryption must be both confidential and authenticated.
 
@@ -512,8 +588,7 @@ Each entry records the decision, alternatives considered, rationale, and the sou
 ---
 
 ### ADR-05: Plugin Allowlist + Read-Only Note Copies  
-**Status:** Partially implemented (PluginBase/Registry done; allowlist and read-only copies planned)  
-`[LOG 04-15]` `[REQ R4.5, R4.10, R15.7]` `[BL B-56, B-69]`
+**Status:** Planned  `[LOG 04-15]` `[REQ R4.5, R4.10, R15.7]` `[BL B-56, B-69]`
 
 **Context:** An unrestricted plugin API allows plugins to modify note content in memory, access the raw database, or execute arbitrary code via `exec`/`eval`.
 
@@ -591,11 +666,13 @@ Each entry records the decision, alternatives considered, rationale, and the sou
 
 **Context:** The desktop app and sync server both need OAuth 2.0 / OpenID Connect login. The provider strategy must be extensible so additional providers can be added without rewriting the auth module.
 
-**Decision:** **authlib** with Google OpenID Connect as the required minimum provider. `[LOG 05-04]`
+**Decision:** **authlib** with Google OpenID Connect as the required minimum provider; PKCE redirect via **custom URI scheme** (`astranotes://callback`). `[LOG 05-04]` `[D-01 resolved 2026-05-07]`
 - authlib is framework-neutral (works with FastAPI for the sync server and handles PKCE flow for the desktop client); implements RFC 6749/7636/7519 correctly.
 - Extensible provider registry pattern: each provider implements `get_auth_url()`, `exchange_code()`, `get_user_info()`.
 - Provider secrets in environment variables only; never stored in config files or source code.
 - JWT issued by sync server after successful OAuth callback; `sub` claim = `account_id`; signed with server private key.
+- **PKCE redirect mechanism (D-01):** The desktop app registers the custom URI scheme `astranotes://callback` during installation (Windows: `HKCU\Software\Classes\astranotes` registry key; macOS: `Info.plist`; Linux: `.desktop` `MimeType=x-scheme-handler/astranotes`). Google's consent screen opens in the system browser; after approval the browser fires `astranotes://callback?code=<code>&state=<state>` and the OS routes it directly to the running app process — no inbound HTTP socket required. Embedded WebViews (`QWebEngineView`) are explicitly prohibited: Google blocks OAuth in embedded user-agents.
+- **Why not loopback HTTP (Option A):** Loopback is safe with PKCE but requires an inbound socket and is fragile if the port is already bound. Because the app ships with an installer, the custom URI scheme is cleaner, has no port-conflict risk, and opens no network surface.
 
 ---
 
@@ -610,49 +687,49 @@ Each entry records the decision, alternatives considered, rationale, and the sou
 - **Local web server + browser SPA** — previously considered; dropped (browser UI eliminated by team decision)
 - **PySide6** — Qt6 Python binding; native widgets; LGPL; no Node.js; same API as PyQt6 but safer licence
 
-**Decision:** **PySide6 desktop application.** `[LOG 05-04]` A single PySide6 `QApplication` is the GUI for both Sprint 4 (local CRUD) and Sprint 5 (sync added). There is no browser-based surface; the sync server is a backend-only REST service. PySide6 is chosen over PyQt6 (same Qt6 API; LGPL licence is safer for course use) and over Electron/Tkinter (native widgets, no Node.js toolchain, richer styling than Tkinter). The Sprint 5 sync button triggers push/pull; if no valid session token is found, the app presents an OAuth login dialog (opens system browser for Google consent via PKCE flow, captures the redirect on `localhost:<ephemeral-port>/callback`). Both sprint deliverables share one codebase; sync features are activated by the presence of a valid session token.
+**Decision:** **PySide6 desktop application.** `[LOG 05-04]` A single PySide6 `QApplication` is the GUI for both Sprint 4 (local CRUD) and Sprint 5 (sync added). There is no browser-based surface; the sync server is a backend-only REST service. PySide6 is chosen over PyQt6 (same Qt6 API; LGPL licence is safer for course use) and over Electron/Tkinter (native widgets, no Node.js toolchain, richer styling than Tkinter). The Sprint 5 sync button triggers push/pull; if no valid session token is found, the app presents an OAuth login dialog (opens system browser for Google consent via PKCE flow; redirect captured via `astranotes://callback` custom URI scheme — see ADR-12). Both sprint deliverables share one codebase; sync features are activated by the presence of a valid session token.
 
-Maps each requirement group to the implementing module, class, and test coverage.
+Maps each requirement group to the implementing module, class, and test coverage. All entries are planned — no code exists yet.
 
 | Requirement | Module | Class / Function | Test |
 |-------------|--------|-----------------|------|
-| R1.1 Add note (text) | `src/cli.py` | `add()` | `tests/steps/test_steps.py` — `add_note` step; `features/add_notes.feature` |
-| R1.2 Get by ID | `src/cli.py` | `get()` | `features/get_notes.feature` |
-| R1.3 List notes | `src/cli.py` | `list()` | `features/list_notes.feature` |
-| R1.4 Update note | `src/cli.py` | `update()` | `features/update_notes.feature` |
-| R1.5 Delete note | `src/cli.py` | `delete()` | `features/delete_notes.feature` |
-| R1.6 Reject empty input | `src/cli.py` | `add()` guard | `tests/test_core.py` — empty title/content tests |
-| R1.7 Non-existent ID error | `src/core/notes.py` | `NoteStore.get/update/delete` | `tests/test_core.py` |
+| R1.1 Add note (text) | *(planned)* `src/cli.py` | `add()` | `[BL B-01]` — not yet tested |
+| R1.2 Get by ID | *(planned)* `src/cli.py` | `get()` | `[BL B-04]` — not yet tested |
+| R1.3 List notes | *(planned)* `src/cli.py` | `list()` | `[BL B-07]` — not yet tested |
+| R1.4 Update note | *(planned)* `src/cli.py` | `update()` | `[BL B-08]` — not yet tested |
+| R1.5 Delete note | *(planned)* `src/cli.py` | `delete()` | `[BL B-11]` — not yet tested |
+| R1.6 Reject empty input | *(planned)* `src/cli.py` | `add()` guard | `[BL B-03]` — not yet tested |
+| R1.7 Non-existent ID error | *(planned)* `src/core/notes.py` | `NoteStore.get/update/delete` | `[BL B-14]` — not yet tested |
 | R1.8 Gap-safe IDs | *(planned)* `src/core/notes.py` | `NoteStore.add` | `[BL B-31]` — not yet tested |
 | R1.9 `--data-dir` validation | *(planned)* `src/cli.py` | `cli()` group | `[BL B-36]` — not yet tested |
 | R1.10 Corrupt JSON recovery | *(planned)* `src/core/notes.py` | `NoteStore.load` | `[BL B-35]` — not yet tested |
-| R2.1 `--encrypt yes` | `src/cli.py` | `add()` | `features/add_notes.feature` encrypted scenario |
+| R2.1 `--encrypt yes` | *(planned)* `src/cli.py` | `add()` | `[BL B-02]` — not yet tested |
 | R2.2 Passphrase confirmation | *(planned)* `src/cli.py` | `add()` | `[BL B-32]` — not yet tested |
-| R2.3–R2.5 Passphrase on read/update/delete | `src/cli.py` | `get/update/delete` + `ensure_store` | `features/get/update/delete_notes.feature` encrypted scenarios |
-| R2.6 No prompt on unencrypted | `src/cli.py` | `add/get/list/update/delete` | `features/` — unencrypted scenarios |
-| R2.7 List hides encrypted title | `src/cli.py` | `list()` | `features/list_notes.feature` |
-| R2.8 Reject wrong passphrase | `src/core/security.py` | `EncryptionEngine.decrypt` (raises `InvalidTag`) | `tests/test_core.py` — wrong passphrase test |
+| R2.3–R2.5 Passphrase on read/update/delete | *(planned)* `src/cli.py` | `get/update/delete` + `ensure_store` | `[BL B-05, B-09, B-12]` — not yet tested |
+| R2.6 No prompt on unencrypted | *(planned)* `src/cli.py` | `add/get/list/update/delete` | `[BL B-01–B-15]` — not yet tested |
+| R2.7 List hides encrypted title | *(planned)* `src/cli.py` | `list()` | `[BL B-07]` — not yet tested |
+| R2.8 Reject wrong passphrase | *(planned)* `src/core/security.py` | `EncryptionEngine.decrypt` (raises `InvalidTag`) | `[BL B-06, B-10, B-13]` — not yet tested |
 | R2.9 Sandbox blob model | *(planned)* `src/core/notes.py` | `BlobCodec` | `[BL B-43]` — not yet implemented |
-| R2.10 No default key | `src/core/notes.py` | `NoteStore.__init__` | `tests/test_core.py` — no-key load test |
+| R2.10 No default key | *(planned)* `src/core/notes.py` | `NoteStore.__init__` | `[BL B-16]` — not yet tested |
 | R2.11 Min 8-char passphrase | *(planned)* `src/cli.py` | `ensure_store` | `[BL B-34]` — not yet tested |
-| R2.12 No cross-note corruption | `src/core/notes.py` | `NoteStore.save` | `tests/test_core.py` — mixed note save test |
+| R2.12 No cross-note corruption | *(planned)* `src/core/notes.py` | `NoteStore.save` | `[BL B-21]` — not yet tested |
 | R2.14 `reencrypt` command | *(planned)* `src/cli.py` | new command | `[BL B-62]` |
-| R3.1–R3.4 JSON persistence | `src/core/notes.py` | `NoteStore.load/save` | `tests/test_core.py` — persistence tests |
-| R3.5 1000+ notes performance | `src/core/notes.py` | `NoteStore` | `tests/test_core.py` — stress test (1001 notes) |
-| R4.1–R4.2 Plugin base + registry | `src/core/plugin_base.py` | `PluginBase`, `PluginRegistry` | `tests/test_core.py` — plugin registry test |
-| R4.3–R4.4 Hooks + CLI commands | `plugins/summary_plugin.py` | `SummaryPlugin` | `tests/test_core.py` — hook dispatch test |
+| R3.1–R3.4 JSON persistence | *(planned)* `src/core/notes.py` | `NoteStore.load/save` | `[BL B-15, B-16]` — not yet tested |
+| R3.5 1000+ notes performance | *(planned)* `src/core/notes.py` | `NoteStore` | `[BL B-22]` — not yet tested |
+| R4.1–R4.2 Plugin base + registry | *(planned)* `src/core/plugin_base.py` | `PluginBase`, `PluginRegistry` | `[BL B-18, B-83]` — not yet tested |
+| R4.3–R4.4 Hooks + CLI commands | *(planned)* `plugins/summary_plugin.py` | `SummaryPlugin` | `[BL B-18]` — not yet tested |
 | R4.6 Plugin discovery | *(planned)* `src/cli.py` | startup loader | `[BL B-37]` |
 | R4.7 Hook error isolation | *(planned)* `src/core/plugin_base.py` | `PluginRegistry.call_hook` | `[BL B-38]` |
 | R4.8 Duplicate plugin skip | *(planned)* `src/core/plugin_base.py` | `PluginRegistry.register_plugin` | `[BL B-38]` |
 | R4.10 Plugin allowlist | *(planned)* `src/core/plugin_base.py` | startup loader + config | `[BL B-69]` |
-| R5.1 `--data-dir` global option | `src/cli.py` | `cli()` | `tests/` — all BDD scenarios use temp data dir |
-| R5.2 Non-zero exit on error | `src/cli.py` | `raise click.ClickException` | `tests/test_core.py` — exit code assertions |
+| R5.1 `--data-dir` global option | *(planned)* `src/cli.py` | `cli()` | `[BL B-19]` — not yet tested |
+| R5.2 Non-zero exit on error | *(planned)* `src/cli.py` | `raise click.ClickException` | `[BL B-23]` — not yet tested |
 | R7 Override policy | *(planned)* `src/cli.py` | new guard | `[BL B-24]` |
 | R8 Audit trail | *(planned)* `src/core/` | `AuditLogger` | `[BL B-25, B-71]` |
 | R9 Config module | *(planned)* `src/core/` | `ConfigStore` | `[BL B-26]` |
 | R10.1–R10.3 Search | *(planned)* `src/cli.py` | `search()` command | `[BL B-29]` |
 | R10.4–R10.7 Export | *(planned)* `src/cli.py` | `export()` command | `[BL B-30, B-76, B-78]` |
-| R12 Deployment modes | *(planned)* `src/cli.py` | first-launch prompt | `[BL B-41]` |
+| R12 Local-first architecture with opt-in account | *(planned)* `src/cli.py` | `get_store()` startup factory; first-login prompt (one-time) | `[BL B-41, B-42]` |
 | R13 Authentication | *(planned)* `src/core/` | `AuthManager` | `[BL B-45–B-48, B-57–B-61]` |
 | R14.1–R14.13 Database backend | *(planned)* `src/core/` | `DatabaseStore` | `[BL B-42–B-44, B-51, B-63–B-68]` |
 | R15.1–R15.2 ORM / no raw SQL | *(planned)* `src/core/` | `DatabaseStore` | `[BL B-51]` |
@@ -664,7 +741,7 @@ Maps each requirement group to the implementing module, class, and test coverage
 
 ---
 
-## 8. Directory Structure
+## 8. Directory Structure *(Sprint Zero target — not yet created)*
 
 ```
 AstraNotes/
@@ -713,20 +790,20 @@ AstraNotes/
 
 ## 9. Design Weaknesses, Gaps, and Intentional Deferments
 
-Four categories are distinguished. **Active bugs** are discrepancies between the current source code and what the design doc implies. **Missing design** means a transition or integration point has no design at all. **Underspecified design** means the design describes something but omits enough detail that implementation decisions are left undefined. **Intentional deferments** are explicitly scoped-down items whose absence is known and tracked.
+Four categories are distinguished. **Known pitfalls** are implementation mistakes identified from the prior codebase that must not be repeated in the new implementation. **Missing design** means a transition or integration point has no design at all. **Underspecified design** means the design describes something but omits enough detail that implementation decisions are left undefined. **Intentional deferments** are explicitly scoped-down items whose absence is known and tracked.
 
 ---
 
-### 9.1 Active Bugs Not Reflected in the Design
+### 9.1 Known Pitfalls from Prior Implementation — Avoid in New Code
 
 **B1 — ID collision after delete** `[REQ R1.8]` `[BL B-31]`  
-`cli.add()` uses `str(len(store.list()) + 1)` as the new ID. Deleting any note causes `len` to undercount, producing a collision with an existing ID on the next add. The interaction diagram in §4.1 still shows this formula, making the diagram technically incorrect. The design correctly marks the fix as planned but does not acknowledge that the current diagram is wrong.
+The new implementation MUST use `str(uuid.uuid4())` as the note ID inside `NoteStore.add()`. Do NOT compute the ID as `str(len(store.list()) + 1)` — that formula collides after any deletion (deleting note 3 from {1, 2, 3} then adding yields a second note 3). UUIDs are gap-safe, require no coordination, and require no reading of existing IDs before insertion. The interaction diagram in §4.1 shows the correct UUID approach.
 
-**B2 — Wrong-passphrase detection uses a sentinel string, not cryptography** `[REQ R2.8]`  
-`get`, `update`, and `delete` check `if note.title == "[Encrypted Note]"` to infer a wrong passphrase. The class diagram in §3.1 implies detection via `EncryptionEngine.decrypt()` raising `cryptography.exceptions.InvalidTag`. In reality, `InvalidTag` is caught silently in `NoteStore.load()` and the note's title is replaced with the sentinel. The CLI then pattern-matches that string. A note legitimately titled `[Encrypted Note]` would be permanently inaccessible. The design doc does not document this discrepancy.
+**B2 — Wrong-passphrase detection must use cryptography, not a sentinel string** `[REQ R2.8]`  
+`EncryptionEngine.decrypt()` raises `cryptography.exceptions.InvalidTag` on a wrong passphrase. The new implementation MUST let this exception propagate from `EncryptionEngine` through `NoteStore` to the CLI. Do NOT catch `InvalidTag` silently inside `NoteStore.load()` and replace the note title with `"[Encrypted Note]"`. Do NOT then branch on `if note.title == "[Encrypted Note]"` in CLI commands to detect a wrong passphrase — any note legitimately titled that string would be permanently inaccessible. Correct pattern: `NoteStore.load()` propagates `InvalidTag` to the caller; the CLI `get`, `update`, and `delete` commands catch it and exit with a non-zero code and an error message.
 
-**B3 — Re-encryption on every save** `[REQ R3.2]`  
-When a keyed `NoteStore` saves, `key_manager.get_engine()` is called per note, producing a new `EncryptionEngine` with a fresh random salt. Every encrypted note receives a new ciphertext on every save, including notes that were not modified. With 100,000 PBKDF2 iterations per derivation, this becomes progressively slower as the number of encrypted notes grows. Neither the class diagram nor any ADR documents this as a known limitation.
+**B3 — Only re-encrypt notes that were actually modified** `[REQ R3.2]`  
+The new implementation MUST NOT call `key_manager.get_engine()` once per note inside `NoteStore.save()`. That approach produces a new random salt per call and re-encrypts ALL encrypted notes on every save — including notes that were not modified. With 100,000 PBKDF2 iterations per derivation, performance degrades proportionally to the number of encrypted notes. Correct approach: each `Note` stores its own `salt` alongside its ciphertext; on save, only the note that was actually added or modified is (re-)encrypted; unchanged notes write their stored `encrypted_title` / `content` ciphertext verbatim. The wire format `[16B salt][12B nonce][16B GCM tag][ciphertext]` supports independent per-note salts natively.
 
 ---
 
@@ -805,12 +882,14 @@ See [`docs/traceability-metrics.md`](traceability-metrics.md) for the full break
 
 | Metric | Count | % |
 |--------|-------|---|
-| Total requirements reviewed | 121 | 100% |
-| Fully Traced | 29 | 24% |
-| Partially Traced | 17 | 14% |
-| Weakly Traced | 71 | 59% |
-| Not Traced | 4 | 3% |
-| UML elements without a requirement | 5 | — |
+| Total requirements reviewed | 138 | 100% |
+| Fully Traced | 0 | 0% |
+| Partially Traced | 0 | 0% |
+| Weakly Traced | 121 | 88% |
+| Not Traced | 17 | 12% |
+| UML elements without a requirement | 4 | — |
+
+> **Note (2026-05-07):** All Sprint Zero source code and tests were removed. All items previously Fully Traced or Partially Traced are now Weakly Traced (design only, no code). See `docs/traceability-metrics.md` for the full matrix.
 
 ---
 

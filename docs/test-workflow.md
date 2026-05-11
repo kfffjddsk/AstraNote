@@ -32,6 +32,8 @@ Bounded 1001-note test in temp workspace. Validates add, reload, delete without 
 
 ## Recommended Commands
 
+> **Note (2026-05-07):** All Sprint Zero source code and test files were removed. The commands below will not execute successfully until Sprint Zero is reimplemented. The test counts (17 BDD scenarios, 16 unit tests, 33 total) are the **Sprint Zero baseline targets** to re-establish. Sprint 1 exit criteria (47 tests) assume that 33-test baseline will be achieved first.
+
 Run the full automated suite:
 
 ```powershell

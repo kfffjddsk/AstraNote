@@ -6,6 +6,8 @@
 
 AstraNotes is a secure, modular note-taking platform built in Python as a CLI-first application with a plugin ecosystem and a future GUI extension path.
 
+> **Status: Pre-implementation — Sprint Zero not yet started.** All planning, design, and architecture documents are complete. The commands shown below describe the planned CLI interface; no source code exists yet.
+
 ## Vision
 
 - Local-first encrypted note storage

@@ -9,27 +9,27 @@ Establish project foundation: architecture, tooling, tests, docs, agreements.
 ## Deliverables
 
 ### 1. Project Setup
-- [x] Python project structure (`src/`, `tests/`, `plugins/`, `docs/`)
+- [ ] Python project structure (`src/`, `tests/`, `plugins/`, `docs/`)
 - [x] Virtual environment with pinned dependencies (`requirements.txt`)
 - [x] `pytest.ini` configured with test paths and markers
 
 ### 2. Core Architecture
-- [x] `Note` data model with timestamps, metadata, encryption flag
-- [x] `NoteStore` for JSON-based persistence with save-on-mutate
-- [x] `EncryptionEngine` (AES-256-GCM) and `KeyManager`
-- [x] `PluginBase` and `PluginRegistry` for hook-based extensibility
+- [ ] `Note` data model with timestamps, metadata, encryption flag
+- [ ] `NoteStore` for JSON-based persistence with save-on-mutate
+- [ ] `EncryptionEngine` (AES-256-GCM) and `KeyManager`
+- [ ] `PluginBase` and `PluginRegistry` for hook-based extensibility
 
 ### 3. CLI Foundation
-- [x] Click-based CLI with `add`, `get`, `list`, `update`, `delete`
-- [x] Global `--data-dir` option
-- [x] Input validation and non-zero exit codes on errors
+- [ ] Click-based CLI with `add`, `get`, `list`, `update`, `delete`
+- [ ] Global `--data-dir` option
+- [ ] Input validation and non-zero exit codes on errors
 
 ### 4. Testing Infrastructure
-- [x] `conftest.py` with shared fixtures (runner, temp dir, cli_app)
-- [x] BDD feature files for all CRUD + encryption scenarios (17 scenarios)
-- [x] Unit tests for core modules (16 tests)
-- [x] Bounded stress test (1001 notes)
-- [x] `test_all.py` runner (unit + BDD pillars)
+- [ ] `conftest.py` with shared fixtures (runner, temp dir, cli_app)
+- [ ] BDD feature files for all CRUD + encryption scenarios (17 scenarios)
+- [ ] Unit tests for core modules (16 tests)
+- [ ] Bounded stress test (1001 notes)
+- [ ] `test_all.py` runner (unit + BDD pillars)
 
 ### 5. Documentation & Process
 - [x] Working Agreement in `Copilot/`
@@ -50,6 +50,8 @@ Establish project foundation: architecture, tooling, tests, docs, agreements.
 - Clean working tree, all pushed.
 - B-01 through B-23 done.
 - Agreements and planning docs committed.
+
+*Current status: Not started — all code wiped; rebuild from scratch. Documentation and planning artifacts (sections 5–6 above) are complete.*
 
 ## Next Sprint Candidates
 *B-24, B-25, B-28 were originally flagged here. Sprint 1 was reoriented to critical bug fixes (B-31–B-40) first. B-24, B-25, B-28 are deferred to Sprint 3 after database and auth infrastructure (Sprint 2) is in place. See Sprint 3 Plan below.*
