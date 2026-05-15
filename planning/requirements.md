@@ -8,14 +8,14 @@ Create, read, list, update, and delete notes via CLI.
 |----|-------------|
 | R1.1 | Add a note with title and content; support text, audio, video formats |
 | R1.2 | Retrieve note by ID; encrypted notes require passphrase |
-| R1.3 | List notes with ID, title, and format; hide title for encrypted notes (show `[Encrypted Note]`). Listing reads plaintext `title` and `format` columns — does not parse blobs |
+| R1.3 | List notes with ID, title, and format; hide title for encrypted notes (show `[Encrypted Note]`). Listing reads plaintext `title` and `format` columns — does not parse blobs. CLI renders two sections: **"Your Notes"** (notes with `account_id = <current user>`) then **"Local Open Notes"** (notes with `account_id = NULL`). When the user is logged out, only "Local Open Notes" is shown — the "Your Notes" section is omitted entirely. `DatabaseStore.list(account_id)` returns `(account_notes: List[Note], local_notes: List[Note])`. `[D-11]` |
 | R1.4 | Update a note's title or content by ID; no changes provided → no-op |
 | R1.5 | Delete a note by ID |
 | R1.6 | Reject empty or whitespace-only title or content on add |
 | R1.7 | Return clear error for non-existent note IDs |
 | R1.8 | Generate gap-safe unique IDs (UUID or max-ID+1); no collision after deletions |
 | R1.9 | `--data-dir` must be a writable directory; existing file at path → error; no permission → error with message |
-| R1.10 | Corrupt `notes.json` → back up as `notes.json.bak`, start empty, warn user |
+| ~~R1.10~~ | ~~Corrupt `notes.json` → back up as `notes.json.bak`, start empty, warn user~~ — **N/A** (SQLite ACID transactions replace JSON corruption recovery; no JSON storage layer) `[D-10]` |
 
 ## R2: Encryption
 
@@ -42,16 +42,16 @@ Per-note opt-in encryption using AES-256-GCM with PBKDF2 key derivation.
 
 ## R3: Data Persistence
 
-Local JSON store with cross-session persistence. Scoped to pre-migration mode; superseded by R14 (database) after `migrate` command is run.
+**SUPERSEDED by R14 (SQLite, Sprint 0).** `[D-10 resolved 2026-05-12]` SQLite (`DatabaseStore`) is used from Sprint 0; there is no JSON storage phase. R3.1 and R3.6 are retired. R3.2–R3.5, R3.7–R3.8 remain applicable to `DatabaseStore` and are covered by R14.1–R14.13.
 
 | ID | Requirement |
 |----|-------------|
-| R3.1 | Store notes in `<data-dir>/notes.json` (pre-migration only; replaced by database after migration) |
+| ~~R3.1~~ | ~~Store notes in `<data-dir>/notes.json` (pre-migration only; replaced by database after migration)~~ — **RETIRED** (SQLite `notes.db` from Sprint 0 — R14.1) |
 | R3.2 | Save after every mutation (add, update, delete) |
 | R3.3 | Load existing notes on startup |
 | R3.4 | Preserve encrypted records when loaded without a key |
 | R3.5 | Handle listing, searching, fetching, deleting 1000+ notes within 0.5 seconds on reference hardware (documented test environment) without crashes or exceptions |
-| R3.6 | Corrupt JSON detected on load → back up as `.bak`, start empty, warn user (pre-migration only; DB mode uses ACID transactions) |
+| ~~R3.6~~ | ~~Corrupt JSON detected on load → back up as `.bak`, start empty, warn user~~ — **RETIRED** (SQLite ACID transactions replace JSON corruption recovery) `[D-10]` |
 | R3.7 | File write errors → catch and display actionable message (e.g., "Cannot write to <path>: permission denied") |
 | R3.8 | Disk-full errors (`ENOSPC` / `OSError`) caught and reported as actionable error; no silent data loss |
 
@@ -71,6 +71,9 @@ Hook-based architecture for extending CLI behavior.
 | R4.8 | Duplicate plugin registration → skip with warning |
 | R4.9 | `overrides` field validated against override policy (R7) |
 | R4.10 | Plugin allowlist in config (`allowed_plugins` key); only listed plugins loaded. Unsigned/unlisted plugins rejected with warning |
+| R4.11 | Plugin manifest file (`plugin.json`) must be present in each plugin subdirectory; required fields: `plugin_id`, `name`, `version` (semver), `engines` (min AstraNotes version), `main` (entrypoint module path); validated with `jsonschema` at startup `[D-12]` |
+| R4.12 | `is_official` is server-assigned only; any manifest containing `is_official` must be rejected; user-installed (sideloaded) plugins always default to `is_official = False` regardless of manifest content `[D-12]` |
+| R4.13 | Trust tier enforcement: `is_official = True` (server-approved) grants full `EditorProvider` + `PluginBase` API; `is_official = False` (user-installed) restricted to `EditorProvider` only — `PluginBase` hook registration blocked at `register_plugin()` time with warning `[D-12]` |
 
 ## R5: CLI Interface
 
@@ -89,10 +92,10 @@ BDD scenarios and unit tests validate all features.
 | ID | Requirement |
 |----|-------------|
 | R6.1 | BDD feature files cover R1 CRUD scenarios |
-| R6.2 | Unit tests cover core modules (Note, NoteStore, encryption) |
+| R6.2 | Unit tests cover core modules (Note, DatabaseStore, encryption) |
 | R6.3 | Stress test validates 1000+ note volume safely |
 | R6.4 | Tests run via `pytest` and `test_all.py` |
-| R6.5 | Edge-case tests: whitespace inputs, ID collision, corrupt JSON, passphrase validation, permission errors |
+| R6.5 | Edge-case tests: whitespace inputs, ID collision, passphrase validation, permission errors, SQLite ACID error handling |
 
 ## R7: Override Policy
 
@@ -131,6 +134,8 @@ Persistent settings module.
 | R9.4 | Invalid value type for a key → error with expected type |
 | R9.5 | Config file missing → all defaults used, file created on first `config set` |
 | R9.6 | `DATABASE_URL` never stored in config; accepted from environment variable only |
+| R9.7 | Session exclusivity: only one AstraNotes session (GUI or CLI) may run per account at a time. Enforced by a PID-based lock file at `<data-dir>/.app.lock`. New session startup checks the lock; if the recorded PID is alive, startup fails with an error dialog. Stale locks (dead PID) are overwritten silently. Lock file deleted on clean exit. `[D-13 resolved 2026-05-13]` |
+| R9.8 | Encrypted note idle auto-lock: if an encrypted note has been open without user interaction for 5 minutes, auto-close it and clear the passphrase from memory. Idle timer reset on any user interaction. Fires silently — no prompt. This is a security feature; it is not a multi-user locking mechanism. `[D-13 resolved 2026-05-13]` |
 
 ## R10: Search and Export
 
@@ -148,13 +153,13 @@ Find notes and export to external formats.
 
 ## R11: GUI Layer
 
-Two distinct GUI products share the same core Python modules (`NoteStore`, `EncryptionEngine`, `PluginRegistry`). The CLI remains the primary interface through Sprint 3; GUI variants are planned for Sprint 4 (local CRUD desktop) and Sprint 5 (sync added to same desktop app). There is no browser-based surface.
+Two distinct GUI products share the same core Python modules (`DatabaseStore`, `EncryptionEngine`, `PluginRegistry`). The CLI remains the primary interface through Sprint 3; GUI variants are planned for Sprint 4 (local CRUD desktop) and Sprint 5 (sync added to same desktop app). There is no browser-based surface.
 
 ### R11-A: Personal GUI (Sprint 4)
 
 | ID | Requirement |
 |----|-------------|
-| R11.1 | Personal GUI shares the same core modules as the CLI: `NoteStore`, `EncryptionEngine`, `PluginRegistry` — no logic duplication |
+| R11.1 | Personal GUI shares the same core modules as the CLI: `DatabaseStore`, `EncryptionEngine`, `PluginRegistry` — no logic duplication |
 | R11.2 | Personal GUI supports all CRUD operations (add, get, list, update, delete) through UI controls |
 | R11.3 | Personal GUI design is minimal and task-focused — note list on the left, content editor on the right; no unneeded chrome (inspired by Apple Notes / Simplenote / Notesnook) |
 | R11.4 | Passphrase prompted via a modal dialog for encrypted notes |
@@ -224,7 +229,7 @@ Relational storage with sandbox binary model for note data.
 | R14.4 | Sandbox binary storage: blob uses length-prefixed framing; header (JSON) + payload (raw bytes). Encrypted notes: entire blob is AES-256-GCM ciphertext. Unencrypted notes: plaintext header + raw payload |
 | R14.5 | No sensitive metadata (content, timestamps, tags, original_filename) stored outside the blob. `title` column stores a user-chosen alias for encrypted notes (defaults to `[Encrypted Note]` if omitted; authoritative title remains inside the blob). `format` duplicated as plaintext column for fast listing; authoritative copy remains inside the blob |
 | R14.6 | ACID transactions on every mutation; concurrent writes must not corrupt data |
-| R14.7 | `migrate` CLI command converts `notes.json` → database; backs up JSON before migration. Alert user that encrypted notes require passphrase entry for conversion to sandbox blob format. If user confirms, prompt passphrase per encrypted note; mismatched passphrase → skip that note with warning. Skipped notes remain in JSON backup. After all notes migrated successfully, prompt to securely delete backup; auto-deleted if confirmed. If any notes skipped, warn that backup must be kept |
+| ~~R14.7~~ | ~~`migrate` CLI command converts `notes.json` → database; backs up JSON before migration. Alert user that encrypted notes require passphrase entry for conversion to sandbox blob format. If user confirms, prompt passphrase per encrypted note; mismatched passphrase → skip that note with warning. Skipped notes remain in JSON backup. After all notes migrated successfully, prompt to securely delete backup; auto-deleted if confirmed. If any notes skipped, warn that backup must be kept~~ — **DROPPED** (no JSON storage phase; SQLite from Sprint 0) `[D-10 resolved 2026-05-12]` |
 | R14.8 | Size threshold: payloads ≤ 5 MB stored inline in `encrypted_blob` column. Payloads > 5 MB: only encrypted notes may use filesystem storage under per-user directory at `files/<note_id>.<ext>` (server: `<data-dir>/users/<hashed_uid>/files/`; personal: `<data-dir>/files/`). AES-256-GCM encrypted before writing to disk; DB stores path reference in blob header. Unencrypted notes always stored inline regardless of size (no plaintext files on disk). Orphan cleanup on note delete |
 | R14.9 | Retrieval: decrypt blob → parse header. `text/*` format → display as plaintext. Binary format → write payload to per-user exports directory (`exports/<original_filename>`) with restricted permissions; display path and cleanup warning |
 | R14.10 | `accounts` table (local, created on first `register` or `login`): `account_id` (PK, UUID), `username` (unique, case-insensitive), `password_hash`, `created_at`, `failed_attempts` (int, default 0), `locked_until` (nullable timestamp). This table exists in the local SQLite DB; a mirror exists on the sync server |
@@ -256,7 +261,7 @@ The sync server stores a cloud copy of account-associated notes. It is **not** a
 |----|-------------|
 | R16.1 | Sync push endpoint: `POST /sync/push` — client sends a list of note blobs (with `account_id`, `note_id`, `synced_at`) that are newer than the last known server timestamp; server stores them |
 | R16.2 | Sync pull endpoint: `GET /sync/pull?since=<timestamp>` — server returns all note blobs for the authenticated account that changed after `since`; client merges into local SQLite |
-| R16.3 | Conflict resolution strategy: **last-write-wins** based on `modified_at` timestamp inside the blob header; both versions are preserved in a `note_conflicts` table for 30 days so the user can review |
+| R16.3 | Conflict resolution: on pull, if both server and local versions changed since last sync, the desktop shows a 2-pane `MergeWindow` — local version (read-only, diffs highlighted yellow) on the left, remote version (editable) on the right. User merges freely and clicks [Save Final]; final version overwrites local and is pushed back to the server. No `note_conflicts` table. `[D-14 decided 2026-05-14]` |
 | R16.4 | All sync endpoints require a valid bearer token (JWT); requests without a valid token return HTTP 401 |
 | R16.5 | Per-account data isolation: all server queries scoped by `account_id` from the token; no cross-account data access |
 | R16.6 | Sync server handles concurrent requests via connection pooling (SQLAlchemy pool) |

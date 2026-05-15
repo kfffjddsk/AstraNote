@@ -9,117 +9,127 @@ When an item is resolved, mark it **Resolved** with a brief note and the date �
 
 ## Open Items
 
-### D-07 — `Note.title` Dual-Field State Machine
-**Added:** 2026-05-11  
-**Blocking:** Sprint 1 — affects every encrypted note read/write path  
-**Gap (U1):** The `Note` dataclass carries both `title` (sometimes plaintext, sometimes the `"[Encrypted Note]"` sentinel) and `encrypted_title` (raw AES-256-GCM ciphertext). The class diagram in §3.1 shows both fields but does not specify the state machine: when is `title` authoritative? When is `encrypted_title`? When are both populated? The write path (what `NoteStore.add()` sets), the update path (which field changes), and the save path (which field is serialized) are all unspecified.
-
-**Decision needed:** Formally define the state for each operation — create, load with correct key, load without key, update, save. Document in §3.1 and update the interaction diagrams in §4. `[LOG 05-11]`
-
----
-
-### D-08 — Error Flows Missing from All Interaction Diagrams
-**Added:** 2026-05-11  
-**Blocking:** Sprint 1 — every interaction diagram is incomplete without error paths  
-**Gap (U2):** All four diagrams in §4 show only the happy path. Missing alternate flows:
-- `InvalidTag` (wrong passphrase) during get, update, delete of encrypted note
-- `KeyError` / note not found on missing ID
-- `OSError` (`ENOSPC` disk full) during `NoteStore.save()`
-- Corrupt `notes.json` on `NoteStore.load()`
-
-Without these, implementers must invent error behavior that may not match REQ R5.2–R5.3 (non-zero exit codes, module-identifying error messages). `[BL B-35]`
-
-**Decision needed:** Add alternate-path branches to diagrams §4.1 and §4.2 at minimum, covering `InvalidTag` and missing-ID cases. The `OSError` and corrupt-JSON cases should be added to §4.5. `[LOG 05-11]`
-
----
-
-### D-09 — `PluginRegistry`: Allowlist and Read-Only Copy Call Sites
-**Added:** 2026-05-11  
-**Blocking:** Sprint 1 plugin infrastructure  
-**Gap (U3):** ADR-05 and §3.2 both require that plugins receive a `copy.deepcopy()` of note data (not the live object) and that only plugins in the `allowed_plugins` config key are loaded. Neither constraint appears in the `PluginRegistry` class diagram, and no interaction diagram shows where the deep-copy happens or where the allowlist check is enforced (at `register_plugin()` vs. the startup loader). The class diagram is therefore inconsistent with ADR-05. `[BL B-56, B-69]`
-
-**Decision needed:** Update `PluginRegistry.call_hook()` to show the deep-copy step. Decide whether the allowlist check is inside `register_plugin()` or in the startup loader before calling it. Reflect in the class diagram and the §4.4 hook-dispatch diagram. `[LOG 05-11]`
-
-**Research direction:** VS Code runs each extension in a separate **Extension Host** process, so a misbehaving extension cannot corrupt VS Code's memory. AstraNotes cannot afford a full separate process per plugin, but VS Code's *in-process* API surface design is directly applicable: VS Code exposes only a frozen, read-only `vscode` API object to each extension — extensions never receive a reference to internal state objects. This maps directly onto the `copy.deepcopy()` requirement: `call_hook()` should pass a frozen dataclass copy (or a `types.MappingProxyType` wrapper) rather than the live `Note` object, mirroring VS Code's "extensions never touch internals" contract. For the allowlist, VS Code validates the `publisher.extensionName` identifier against a trusted-publisher list at install time — applying the same pattern: the allowlist check belongs in `register_plugin()` at registration time, not at call time, so a disallowed plugin is never in the registry at all.
-
----
-
-### D-10 — `BlobCodec` Call Site and Migration Sequence
-**Added:** 2026-05-11  
-**Blocking:** Sprint 2 — BlobCodec and `migrate` command implementation  
-**Gap:**
-
-- **U4 — BlobCodec has no designed call site:** `BlobCodec` is defined in §3.2 with `encode()`, `decode()`, `encrypt()`, `decrypt()` but appears in no interaction diagram. It is unclear whether `DatabaseStore`, `NoteStore`, or `cli.py` invokes it, and at which method boundary (`add`, `save`, `get`, `update`).
-- **T2 — No migration sequence diagram:** The `migrate` command must convert Sprint 0 JSON storage (separate base64-encoded title and content fields) into the sandbox blob format (`[4B len][JSON header][raw payload]` → single AES-256-GCM encrypt). These formats are structurally incompatible; the design provides no conversion path, no per-encrypted-note passphrase prompt flow, and no error flow for notes that fail conversion. `[REQ R14.7]` `[BL B-48, B-72]`
-
-**Decision needed:** (1) Determine which class owns BlobCodec calls and at which method. (2) Write a `migrate` sequence diagram covering: backup, schema creation, per-note conversion, passphrase prompts for encrypted notes, skip-on-mismatch behavior, and post-migration verification. `[LOG 05-11]`
-
----
-
-### D-11 — Session Validation Integration Point and `ensure_store()` Replacement
-**Added:** 2026-05-11  
-**Blocking:** Sprint 2 (account/auth layer)  
-**Gap:**
-
-- **T3 — No session validation integration point:** Once accounts exist (Layer 2), every sync-related CLI command must call `AuthManager.verify_session()` before executing. No interaction diagram includes this step; there is no designed Click decorator, middleware, or group callback that enforces it. An expired session must block sync but must NOT block local CRUD — this conditional logic is undesigned. `[REQ R13.9]`
-- **T4 — No replacement for `ensure_store()`:** The Sprint 0 `ensure_store()` cached a keyed `NoteStore` in `ctx.obj` after prompting for passphrase once per process. In the Layer 2 architecture, passphrase prompts must coexist with session-based auth (a logged-in user still encrypts notes with a passphrase, not their account password). The design never describes the replacement pattern for this context.
-
-**Decision needed:** (1) Design a Click group callback or decorator that conditionally calls `AuthManager.verify_session()` (required for sync operations only). (2) Define the replacement for `ensure_store()` and document how passphrase caching works alongside the session model. Update §4.5. `[LOG 05-11]`
-
----
-
-### D-12 — Extension Plugin Manifest Schema and Sandboxing Trust Model
-**Added:** 2026-05-11  
-**Blocking:** Sprint 4 — extension registry, install, and uninstall cannot be implemented without a defined manifest format  
-**Gap:** D-05 explicitly deferred two items as "not blocking resolution":
-
-- **Manifest format:** Minimum fields are implied (`plugin_id`, `name`, `version`, `is_official`, `supported_mime_types`). The full schema — file format (JSON/TOML), required vs. optional fields, version constraint syntax, entrypoint declaration, permissions list — has not been designed. Without it, the install-from-file flow and `PluginRegistry` cannot validate an extension bundle.
-- **Sandboxing trust model:** D-05 noted "trust-level distinction between official and user-installed extensions to be designed during Sprint 2." What additional restrictions apply to user-installed extensions beyond the `PluginBase` allowlist + read-only copy model? Are there filesystem, network, or API restrictions? Does `EditorProvider` need a separate sandbox boundary from `PluginBase` hooks?
-
-**Decision needed:** (1) Define the manifest file format and all required/optional fields. (2) Define in concrete terms what each trust tier (official vs. user-installed) can and cannot do. `[LOG 05-11]`
-
-**Research direction:** VS Code's `package.json` extension manifest is the clearest available model:
-- **Required fields to adopt:** `publisher` (maps to our `plugin_id` namespace), `name`, `version` (semver), `engines` (maps to our minimum AstraNotes version), `main` (entrypoint module path), `contributes` (maps to our `supported_mime_types`).
-- **Trust tier model:** VS Code distinguishes *Marketplace-verified* (signed, publisher-verified) vs. *VSIX sideload* (user-installed from file). The practical enforcement is: sideloaded extensions show a persistent "not verified" badge and cannot access restricted APIs (e.g., proposed APIs). For AstraNotes: official extensions (pre-installed, `is_official: true`) are allowed to call the full `EditorProvider` + `PluginBase` API; user-installed extensions are restricted to `EditorProvider` only (no `PluginBase` hooks that can read all notes) until a future sandbox tier is designed.
-- **Manifest format recommendation:** JSON (`plugin.json`) rather than TOML — simpler to validate with `jsonschema`, no extra dependency, consistent with `package.json` familiarity.
-
----
-
-### D-13 — Desktop GUI Startup Sequence
-**Added:** 2026-05-11  
-**Blocking:** Sprint 4 — `DesktopGUI` implementation  
-**Gap (T8):** The `DesktopGUI` class in §3.2 is well-specified for its widget and action responsibilities, but the startup interaction with core modules is completely undesigned:
-- How does `DesktopGUI` instantiate `DatabaseStore` — passed in at construction or created internally?
-- When is the `QDialog` passphrase prompt shown for encrypted notes — lazily on first access, or on app open?
-- If both the CLI and the GUI are open simultaneously, SQLite WAL handles concurrent reads, but concurrent writes need a retry / lock-detection strategy. `[BL B-66]`
-- What is the startup sequence on first launch when `notes.db` does not exist yet?
-
-**Decision needed:** Write a startup sequence diagram for `DesktopGUI` covering: `QApplication` init → `DatabaseStore` creation → file list population → encrypted note passphrase prompt timing → concurrent-access handling. `[LOG 05-11]`
-
----
-
-### D-14 — Sync Server Interaction Diagrams and Conflict Resolution
-**Added:** 2026-05-11  
-**Blocking:** Sprint 5 — sync server and sync-enabled desktop client  
-**Gap:**
-
-- **T5 — No sync server interaction diagram:** There is no sequence diagram showing: desktop app sync call → `AuthMiddleware` JWT validation → `SyncRouter.push/pull()` → `DatabaseStore` query → JSON response. This is the primary Sprint 5 data flow. `[BL B-86, B-88]`
-- **T6 — No OAuth PKCE desktop flow diagram:** The PKCE callback sequence is undesigned — app opens system browser → user consents → Google redirects to `astranotes://callback?code=...` → OS routes to app → `AuthMiddleware.oauth_callback()` exchanges code → JWT issued → session token written to disk. The interactions between `AuthMiddleware`, the `authlib` client, and the session file are not sequenced. `[ADR-12]` `[D-01]`
-- **T7 — No conflict resolution design:** `R16.3` states last-write-wins by `modified_at`, with both versions retained in a `note_conflicts` table for 30 days. There is no design for conflict detection (compare server vs. local `modified_at`), the pull-with-conflict flow, how `note_conflicts` is exposed to the user, or how the 30-day auto-delete is triggered. `[REQ R16.3]` `[BL B-86]`
-
-**Decision needed:** Write sequence diagrams for (1) push/pull happy path, (2) OAuth PKCE login flow, and (3) pull-with-conflict scenario before Sprint 5 implementation begins. `[LOG 05-11]`
+*No open items.*
 
 ---
 
 ## Resolved Items
+
+### ~~D-14 — Sync Server Interaction Diagrams and Conflict Resolution~~
+**Added:** 2026-05-11  
+**Resolved:** 2026-05-14  
+**Decisions:**
+
+- **T5 — Push/pull sequence (§4.8):** Two-endpoint happy path designed. Push: `POST /sync/push` → `AuthMiddleware.verify_token()` extracts `account_id` → `SyncRouter.push()` → UPSERT on PG `notes` table → 200 `{synced_at}`. Pull: `GET /sync/pull?since=<ts>` → same auth gate → `SELECT WHERE modified_at > since AND account_id = ?` → 200 `[note blobs]`. All queries scoped by `account_id` from JWT only. Post-pull: desktop compares `server_modified_at` and `local_modified_at` vs `local_synced_at` to detect conflicts.
+- **T6 — OAuth PKCE flow (§4.9):** `DesktopGUI.on_sync()` generates `code_verifier` + `code_challenge`; opens system browser via `QDesktopServices.openUrl()`; receives redirect at `astranotes://callback` custom URI scheme (ADR-12); verifies `state` nonce (CSRF); POSTs `code` + `verifier` to sync server `/auth/callback`; server exchanges via authlib, verifies `id_token` via Google JWKS, upserts account, returns JWT; desktop writes JWT to `<data-dir>/.session` (mode 0600).
+- **T7 — Conflict resolution (§4.10):** No `note_conflicts` table (previous R16.3 language removed). Conflict detected desktop-side when both `server_modified_at > local_synced_at` and `local_modified_at > local_synced_at`. Conflicted note shows `!` badge (yellow circle) in left file list. Clicking opens `MergeWindow` (`QDialog` subclass): local version read-only on left (diffs highlighted), remote version editable on right. `[Use Local ←]` copies full local into right pane. `[Save Final]` writes right-pane content to `DatabaseStore`, clears badge, triggers push. Server blob held in memory only — if app closed without resolving, next pull re-detects.
+
+New design: §4.8 (push/pull), §4.9 (PKCE), §4.10 (MergeWindow). New class: `MergeWindow` (§3.2). Updated: R16.3, B-86, FR-122. `[LOG 05-14]`
+
+---
+
+### ~~D-13 — Desktop GUI Startup Sequence~~
+**Added:** 2026-05-11  
+**Resolved:** 2026-05-13  
+**Decisions:**
+
+- **Startup orchestrator (Q1):** `AppController` (Option C) owns all startup wiring. `main.py` constructs `AppController` and calls `run()`. Initialization order: `ConfigStore.load()` → `DatabaseStore(data_dir)` → `SessionManager.acquire_lock()` → `PluginRegistry.load_manifests()` → `QApplication` + `DesktopGUI(store, session_mgr, config)` → `populate_note_list()` → `start_idle_timer()` → `app.exec()`. `DesktopGUI` receives `DatabaseStore` via constructor injection — never creates it internally.
+- **Passphrase prompt timing (Q2):** Lazy — note list shows `[Encrypted]` placeholder; `QDialog` appears only when user clicks an encrypted note. No passphrase prompt at startup.
+- **Session exclusivity + idle auto-lock (Q3):** Session exclusivity enforced by a PID-based lock file at `<data-dir>/.app.lock`. New session checks lock: alive PID → blocked with error dialog; dead PID → stale lock overwritten. Lock deleted on clean exit. Idle auto-lock: encrypted note open for 5 minutes without interaction → auto-close, clear passphrase from memory, redisplay `[Encrypted]`. Security feature, not multi-user locking.
+- **First launch (Q4):** Already handled — `DatabaseStore.__init__` calls `create_all()` transparently. No special case needed in `AppController`.
+
+New backlog: B-101 (`AppController` + `SessionManager` session lock), B-102 (idle auto-lock timer). New requirements: R9.7 (session exclusivity), R9.8 (idle auto-lock). New design: §4.7. `[LOG 05-13]`
+
+---
+
+### ~~D-12 — Extension Plugin Manifest Schema and Sandboxing Trust Model~~
+**Added:** 2026-05-11  
+**Resolved:** 2026-05-12  
+**Decisions:**
+
+- **Manifest format:** JSON (`plugin.json`) in each plugin subdirectory. Validated at `load_manifests()` time with `jsonschema`. Malformed or missing manifests rejected with warning; plugin skipped.
+- **Required fields:** `plugin_id` (unique namespace), `name`, `version` (semver), `engines` (min AstraNotes version), `main` (entrypoint module path).
+- **Optional fields:** `supported_mime_types`, `keywords` (list[str]), `categories` (list[str]), `repository` (str URL), `extensionDependencies` (list of `plugin_id`s).
+- **`is_official` is server-assigned only** — NOT a manifest field. `load_manifests()` rejects any manifest containing `is_official`. Value injected by `PluginRegistry.register_plugin(plugin, is_official)` from the backend-verified extension registry record. Sideloaded plugins always default to `is_official = False`.
+- **Trust tiers:** `is_official = True` (server-approved) → full `EditorProvider` + `PluginBase` API. `is_official = False` (user-installed) → `EditorProvider` only; `PluginBase` hook registration blocked at `register_plugin()` time with warning.
+- **Trust tier rationale:** `PluginBase` hooks receive a copy of every note on post-add/post-update. Allowing user-installed plugins unrestricted hook access would enable silent note exfiltration. `EditorProvider` restriction limits access to only notes the user actively opens in that plugin's editor.
+- **`EditorProvider` class updated:** `engines: str` and `main: str` added as required fields. `is_official: bool` annotation updated to "server-assigned — NOT read from plugin.json."
+- **`PluginRegistry` updated:** `register_plugin()` signature updated to `register_plugin(plugin, is_official: bool)`; trust-tier enforcement added.
+
+New backlog: B-99 (manifest validation), B-100 (trust-tier enforcement in `register_plugin`). New requirements: R4.11, R4.12, R4.13. New ADR-14. `[LOG 05-12]`
+
+---
+
+### ~~D-11 — Session Validation Integration Point and `ensure_store()` Replacement~~
+**Added:** 2026-05-11  
+**Resolved:** 2026-05-12  
+**Decisions:**
+
+- **T3 — Sync gating:** `sync` is its own Click subgroup. Its group callback calls `AuthManager.verify_session()` — blocking: raises `ClickException` + exit 1 on expired or missing session. The main startup callback (§4.5) calls `try_load_session()` — non-blocking, sets `account_id = None` on miss. Local CRUD is unaffected by session state. See §4.6 for the new sequence diagram. `[REQ R13.8]`
+- **Note scoping:** Logged-out → anonymous notes only (`account_id = NULL`). Logged-in → own account notes + anonymous notes. No cross-user visibility.
+- **Two-section list layout:** `DatabaseStore.list(account_id)` returns `(account_notes: List[Note], local_notes: List[Note])`. CLI renders **"Your Notes"** (account notes) then **"Local Open Notes"** (anonymous). "Your Notes" omitted entirely when logged out. When anonymous notes are associated on login (R12.3 "Yes"), they get `account_id` set and move to "Your Notes". R1.3 updated. `[LOG 05-12]`
+- **Passphrase caching (T4):** `get_key_manager(ctx)` module-level helper in `cli.py`. Checks `ctx.obj['key_manager']` first; if None, prompts passphrase, constructs `KeyManager`, caches it. Within-process only — no OS keychain, no cross-invocation caching. Each new CLI invocation = re-prompt.
+- **`add` command:** Constructs `KeyManager` inline — not cached in `ctx.obj`.
+- **`list` command:** Never needs `key_manager` — reads plaintext columns only.
+- **Commands using `get_key_manager(ctx)`:** `get`, `update`, `delete`, `reencrypt`.
+- **`ctx.obj` schema:** `{'store': DatabaseStore, 'account_id': str|None, 'key_manager': KeyManager|None}`.
+- **GUI passphrase security level (B-98, Sprint 4):** `security_level` config key. `high` (default): clear passphrase on note close, navigate away, minimize, or focus loss. `session`: clear only on app close.
+
+Files updated: design.md (§3.1, §3.2, §4.1, §4.2, §4.2a, §4.5, new §4.6, §9.2 T2–T4, §9.3 U4), requirements.md (R1.3), backlog.md (B-97 line fix + B-98 added). `[LOG 05-12]`
+
+---
+
+### ~~D-10 — Migration Sequence Diagram~~
+**Added:** 2026-05-11  
+**Resolved:** 2026-05-12  
+**Decision:** Eliminated — no migration needed. `DatabaseStore` (SQLite) used from Sprint 0; no JSON storage phase ever shipped. `migrate` CLI command (B-48) dropped; B-72 and B-80 dropped as dependents. D-10 closes as "not needed." Sprint plans, backlog, and design updated accordingly. `[LOG 05-12]`
+
+---
 
 ### D-06 — CLI Startup: Store Factory and ConfigStore Integration
 **Added:** 2026-05-11  
 **Resolved:** 2026-05-11  
 **Decisions:**
 - **ConfigStore location (Option 2):** `ConfigStore` lives at a fixed OS-standard path (`~/.config/astranotes/config.json` on Linux/macOS, `%APPDATA%\astranotes\config.json` on Windows), not inside `data_dir`. The data directory is read from `config["data_dir"]`; the `--data-dir` CLI flag overrides it at runtime. This separates configuration from data and supports portable use (e.g., pointing `--data-dir` at a USB drive requires no config file on the drive). `[LOG 05-11]`
-- **Startup sequence:** (1) `ConfigStore.load()` from fixed OS path; (2) resolve `data_dir` — CLI `--data-dir` flag overrides `config["data_dir"]`; (3) store selection — `notes.db` present → `DatabaseStore`, else `NoteStore`; (4) `PluginRegistry` loads manifests eagerly (MIME-type validation), defers plugin code import until first relevant note is opened (VS Code activation-events model). `[LOG 05-11]`
+- **Startup sequence:** (1) `ConfigStore.load()` from fixed OS path; (2) resolve `data_dir` — CLI `--data-dir` flag overrides `config["data_dir"]`; (3) store creation — always `DatabaseStore(data_dir)` (`create_all()` creates `notes.db` on first run); (4) `PluginRegistry` loads manifests eagerly (MIME-type validation), defers plugin code import until first relevant note is opened (VS Code activation-events model). `[LOG 05-11]` `[D-10 resolved 2026-05-12]`
 - **Code location:** Single central Click group callback in `src/cli.py`. Runs once before every subcommand. `--help` and `--version` short-circuit before the callback runs (Click and `@click.version_option` handle this automatically — no startup I/O for help/version). `[LOG 05-11]`
+
+### D-09 — `PluginRegistry`: Allowlist and Read-Only Copy Call Sites
+**Added:** 2026-05-11  
+**Resolved:** 2026-05-11  
+**Decisions:** `[LOG 05-11]`
+- **Allowlist check location:** `register_plugin()` — mirrors VS Code's install-time publisher validation. A plugin not in `config["allowed_plugins"]` is logged as a warning and skipped; it never enters the registry. Checking at registration time (not at `call_hook()` time) means the guard runs once, not on every hook dispatch.
+- **Note isolation:** `dataclasses.replace(note)` — safe for current `Note` (all-primitive fields: `str`, `bool`, `bytes | None`). Rule: any future mutable field added to `Note` (e.g. `tags: list[str]`) **must** be explicitly shallow-copied at the `call_hook()` call site: `dataclasses.replace(note, tags=list(note.tags))`.
+- **Files updated:** `planning/design.md` — `PluginRegistry` class diagram (`_allowed: frozenset` field added, `call_hook` signature updated), §4.4 hook-dispatch diagram, ADR-05 decision text, §9.3 U3 marked resolved.
+
+### D-08 — Error Flows Missing from All Interaction Diagrams
+**Added:** 2026-05-11  
+**Resolved:** 2026-05-11  
+**Decisions:** Error flows added to §4.1, §4.2, §4.2a (new), and §4.5. `StoreLoadError` added to §3.2 planned classes. `[LOG 05-11]`
+
+| Case | Exception source | Catch site | Exit |
+|------|-----------------|-----------|------|
+| Wrong passphrase | `InvalidTag` propagates from `BlobCodec.decrypt()` through `DatabaseStore.get()` | CLI `get`/`update`/`delete` — `ClickException("[DatabaseStore] Wrong passphrase …")` | 1 |
+| Note not found | `DatabaseStore.get()` returns `None` | CLI checks return value — `ClickException("Note <id> not found.")` | 1 |
+| Disk full / permission | `OperationalError` propagates from `DatabaseStore` | CLI — `ClickException("[DatabaseStore] Write failed: <msg>")` | 1 |
+| ~~Corrupt `notes.json`~~ | ~~`NoteStore.load()` raises `StoreLoadError(path)`~~ | ~~CLI startup callback~~ | ~~1~~ | — **RETIRED** `[D-10]` (SQLite ACID replaces JSON corruption) |
+
+### D-07 — `Note.title` Dual-Field State Machine
+**Added:** 2026-05-11  
+**Resolved:** 2026-05-11  
+**Decision — Option C:** `encrypted_title` removed from `Note`. `Note.blob: bytes | None` is the sole authoritative storage for encrypted notes. `BlobCodec` moved to Sprint 0 `[D-10]`. `DatabaseStore` calls `BlobCodec.encode() + encrypt()` in `add()`; `BlobCodec.decrypt() + decode()` in `get()` when a key is present.
+
+**`Note` field state machine:**
+
+| State | `encrypted` | `blob` | `title` (in-memory) | `content` (in-memory) |
+|-------|-------------|--------|--------------------|-----------------------|
+| Unencrypted | `False` | `None` | Plaintext — authoritative | Plaintext — authoritative |
+| Encrypted, no key | `True` | bytes | `"[Encrypted Note]"` — display only | `""` — empty |
+| Encrypted, correct key | `True` | bytes | Decrypted from blob header | Decrypted from blob payload |
+
+- `blob` is the sole authoritative source for encrypted notes; `title` and `content` are ephemeral in-memory views.
+- On save, unchanged encrypted notes write `blob` verbatim — no re-encrypt. Only modified notes are re-encoded and re-encrypted. `[REQ R3.2]`
+- `"[Encrypted Note]"` is display-only — no code path may branch on it to detect a wrong passphrase (Pitfall B2). `[LOG 05-11]`
 
 ### D-04 — Rich Text Editor as Official Extension
 **Added:** 2026-05-07  

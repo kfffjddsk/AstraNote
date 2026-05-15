@@ -10,8 +10,8 @@
 - Update: modify title/content by ID → saved. `get` reflects new content. Non-existent ID → error. No changes provided → no-op, no save triggered.
 - Delete: remove by ID → gone from list. Non-existent ID → error.
 - Non-zero exit code on all errors. Error messages are actionable.
-- `--data-dir` sets storage location (default `data/`). Must be a writable directory; existing file at path → error; no write permission → error with message. Creates directory if needed.
-- Corrupt `notes.json` → back up as `notes.json.bak`, start empty store, warn user.
+- `--data-dir` sets storage location at runtime (overrides `config['data_dir']` from `ConfigStore`; see design.md §4.5). Must be a writable directory; existing file at path → error; no write permission → error with message. Creates directory if needed. `[REQ R1.9]` `[D-06]`
+- ~~Corrupt `notes.json` → back up as `notes.json.bak`, start empty store, warn user.~~ — **N/A** `[D-10]` (SQLite ACID replaces JSON corruption recovery)
 - IDs are gap-safe; deletions never cause ID collision on subsequent adds.
 
 ## US-2: Encrypt and Decrypt Notes
@@ -32,16 +32,18 @@
 - Updating/deleting unencrypted notes must not corrupt co-stored encrypted notes.
 - No default key; key manager required for all encrypted operations.
 
-## US-3: Persist Notes Across Sessions *(Pre-migration only; superseded by US-12 after `migrate`)*
-**As a** user, **I want** notes to persist after closing the CLI **so that** I keep my data.
+## US-3: Persist Notes Across Sessions — **RETIRED** `[D-10 resolved 2026-05-12]`
+> **Retired:** `NoteStore` (JSON) was never implemented. `DatabaseStore` (SQLite) is the only local store from Sprint 0. All acceptance criteria in US-3 are superseded by US-12 (R14). US-3 is preserved for historical reference.
 
-**Acceptance Criteria:**
-- Notes saved to `notes.json` after every add, update, or delete. (Pre-migration only; database storage via US-12 after migration.)
-- All notes loaded on startup.
-- Encrypted records preserved on no-key load.
-- Corrupt JSON detected on load → back up as `.bak`, start empty, warn user.
-- File write errors → catch and display actionable message (e.g., "Cannot write to <path>: permission denied").
-- Store handles listing, searching, fetching, deleting 1000+ notes within 0.5 seconds without crashes or exceptions.
+~~**As a** user, **I want** notes to persist after closing the CLI **so that** I keep my data.~~
+
+**~~Acceptance Criteria:~~**
+- ~~Notes saved to `notes.json` after every add, update, or delete. (Pre-migration only; database storage via US-12 after migration.)~~
+- ~~All notes loaded on startup.~~
+- ~~Encrypted records preserved on no-key load.~~
+- ~~Corrupt JSON detected on load → back up as `.bak`, start empty, warn user.~~
+- ~~File write errors → catch and display actionable message (e.g., "Cannot write to <path>: permission denied").~~
+- ~~Store handles listing, searching, fetching, deleting 1000+ notes within 0.5 seconds without crashes or exceptions.~~
 
 ## US-4: Extend via Plugins
 **As a** developer, **I want to** register plugins **so that** I can add behavior without modifying core code.
@@ -81,7 +83,7 @@
 **As a** user, **I want** a configuration module **so that** I can store and retrieve app settings without editing code.
 
 **Acceptance Criteria:**
-- Settings stored in `<data-dir>/config.json`.
+- Settings stored at a fixed OS-standard path: `%APPDATA%\astranotes\config.json` (Windows) / `~/.config/astranotes/config.json` (Linux/macOS). Config is separate from `data_dir`; `--data-dir` overrides `config["data_dir"]` at runtime but does not move the config file. `[D-06 resolved 2026-05-11]`
 - Known keys: `default_encrypt` (yes/no), `passphrase_min_length` (int), `data_dir` (path), `plugin_dir` (path), `allowed_plugins` (list), `theme` (light/dark), `font_size` (int), `sync_server_url` (URL), `sync_auto_interval` (int, seconds, 0 = disabled). Free-form keys rejected. `DATABASE_URL` accepted from environment variable only, never stored in config.
 - `config set <key> <value>` → saves. `config get <key>` → retrieves. `config list` → shows all with defaults marked. `config reset <key>` → restores default.
 - Config file missing → all defaults used, file created on first `config set`.
@@ -110,7 +112,7 @@
 - GUI exposes all CRUD operations (add, get, list, update, delete) through visual controls — no terminal required.
 - Note list displayed on the left; content editor displayed on the right. Minimal chrome; no unneeded sidebars or toolbars.
 - Passphrase for encrypted notes prompted via modal dialog (not terminal prompt).
-- Desktop app uses the same local SQLite store as the CLI; no server required. The core modules (`NoteStore`, `EncryptionEngine`, `PluginRegistry`) are shared directly — no duplication of logic.
+- Desktop app uses the same local SQLite store as the CLI; no server required. The core modules (`DatabaseStore`, `EncryptionEngine`, `PluginRegistry`) are shared directly — no duplication of logic.
 - GUI framework decided: PySide6 (ADR-13); `astranotes gui` launches a `QApplication` main window directly; no terminal remains open.
 - All data operations pass the same test suite as the CLI (shared core).
 
@@ -172,8 +174,8 @@
 - **Sandbox binary storage:** blob format `[4-byte header_length][JSON header][raw payload bytes]`. Encrypted notes: entire blob is AES-256-GCM ciphertext.
 - **Retrieval:** decrypt blob → parse header. `text/*` → display in terminal. Binary → write to `<data-dir>/exports/<original_filename>` with restricted permissions; display path + cleanup warning.
 - **Size threshold:** payloads ≤ 5 MB inline in DB. Payloads > 5 MB: only encrypted notes may use filesystem storage at `<data-dir>/files/<note_id>.<ext>`; path stored in blob header. Unencrypted notes always stored inline.
-- `migrate` command converts `notes.json` → SQLite. Backs up JSON first. Prompts passphrase per encrypted note; mismatches → skip with warning. After success, prompts to delete backup.
-- **Cloud sync (requires account session):** `sync push` sends blobs newer than last `synced_at` to the sync server; `sync pull` fetches account notes updated after the last pull timestamp and merges into local SQLite. Conflict resolution: last-write-wins by `modified_at`; both versions preserved in `note_conflicts` table for 30 days.
+- ~~`migrate` command converts `notes.json` → SQLite. Backs up JSON first. Prompts passphrase per encrypted note; mismatches → skip with warning. After success, prompts to delete backup.~~ — **DROPPED** `[D-10]` (no JSON storage phase; SQLite from Sprint 0)
+- **Cloud sync (requires account session):** `sync push` sends blobs newer than last `synced_at` to the sync server; `sync pull` fetches account notes updated after the last pull timestamp and merges into local SQLite. Conflict resolution: on pull conflict, desktop shows `MergeWindow` (2-pane: local read-only left, remote editable right); user saves final version. `[D-14 decided 2026-05-14]`
 - Sync server uses PostgreSQL via `DATABASE_URL` env var only (`sslmode=require`). Schema versioned via Alembic.
 - All queries use SQLAlchemy ORM (parameterized). ACID transactions on every mutation. Disk-full errors reported without silent data loss.
 
@@ -185,7 +187,7 @@
 **Acceptance Criteria:**
 - Login via Google OAuth 2.0 / OpenID Connect (authlib) or local username/password. Both flows produce a local session token.
 - `sync push` sends all account-associated notes newer than last `synced_at` to the sync server. `sync pull` fetches notes updated since last pull and merges into local SQLite.
-- Conflict resolution: last-write-wins by `modified_at`. Both versions stored in `note_conflicts` for 30 days.
+- Conflict resolution: on pull conflict, desktop shows `MergeWindow` (2-pane: local read-only left, remote editable right); user saves final version. `[D-14 decided 2026-05-14]`
 - **Desktop app (Sprint 5B):** sync button triggers push/pull; login dialog (Google OAuth PKCE or local credentials) appears if no active session. Sync-status dot per note row reflects last sync timestamp.
 - **GUI (Sprint 4):** same local SQLite; sync button triggers push/pull.
 - All sync server traffic over HTTPS. Sync endpoints require valid JWT; return HTTP 401 otherwise.

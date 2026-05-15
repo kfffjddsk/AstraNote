@@ -73,7 +73,7 @@ Sprint 1 items (B-31–B-40, B-83) require the following new test coverage. All 
 | B-32 | `add_notes.feature` | Add encrypted note with passphrase shorter than 8 chars → rejected |
 | B-33 | `delete_notes.feature` | Delete an unencrypted note → verify encrypted co-stored note is still retrievable |
 | B-33 | `update_notes.feature` | Update an unencrypted note → verify encrypted co-stored note content unchanged |
-| B-35 | *(new)* `persistence.feature` | Corrupt `notes.json` on load → backup created at `notes.json.bak`, empty store starts, warning shown |
+| ~~B-35~~ | ~~*(new)*~~ ~~`persistence.feature`~~ | ~~Corrupt `notes.json` on load → backup created at `notes.json.bak`, empty store starts, warning shown~~ — **DROPPED** `[D-10]` (SQLite ACID replaces JSON corruption; B-35 dropped) |
 | B-36 | *(new)* `cli_validation.feature` | `--data-dir` pointing to an existing file → error with actionable message |
 | B-36 | `cli_validation.feature` | `--data-dir` pointing to a non-writable path → error with actionable message |
 | B-39 | `cli_validation.feature` | Simulate write failure on save → actionable error message, no crash |
@@ -82,8 +82,8 @@ Sprint 1 items (B-31–B-40, B-83) require the following new test coverage. All 
 
 | Backlog Item | Test Class | Test Description |
 |--------------|-----------|-----------------|
-| B-31 | `TestNoteStore` | `test_id_gap_safe_after_deletion` — add 3 notes, delete note 2, add a 4th, assert no ID collision |
-| B-34 | `TestNoteStore` (via CLI) | `test_short_passphrase_rejected` — assert ValueError or CLI error for passphrase < 8 chars |
+| B-31 | `TestDatabaseStore` *(renamed from `TestNoteStore` — D-10)* | `test_id_gap_safe_after_deletion` — add 3 notes, delete note 2, add a 4th, assert no ID collision |
+| B-34 | `TestDatabaseStore` (via CLI) | `test_short_passphrase_rejected` — assert ValueError or CLI error for passphrase < 8 chars |
 | B-83 | `TestPluginBase` *(new class)* | `test_plugin_registration` — register a plugin, assert it appears in registry |
 | B-83 | `TestPluginBase` | `test_duplicate_plugin_skipped` — register same plugin twice, assert warning, only one entry |
 | B-83 | `TestPluginBase` | `test_hook_dispatch` — register hook, trigger it, assert callback invoked |
@@ -91,6 +91,6 @@ Sprint 1 items (B-31–B-40, B-83) require the following new test coverage. All 
 
 ### Sprint 1 Exit Criteria for Tests
 - All items above written and passing before corresponding backlog item is marked Done
-- Total test count grows from 33 (baseline) to at least 47 (33 + 9 new BDD + 5 new unit)
+- Total test count grows from 33 (baseline) to at least 46 (33 + 8 new BDD + 5 new unit) — *(B-35 dropped; 9→8 BDD scenarios)* `[D-10]`
 - All 33 existing Sprint Zero tests continue to pass (no regression)
 - `pytest -v` reports 0 failures

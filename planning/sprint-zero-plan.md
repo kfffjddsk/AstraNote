@@ -14,8 +14,9 @@ Establish project foundation: architecture, tooling, tests, docs, agreements.
 - [x] `pytest.ini` configured with test paths and markers
 
 ### 2. Core Architecture
-- [ ] `Note` data model with timestamps, metadata, encryption flag
-- [ ] `NoteStore` for JSON-based persistence with save-on-mutate
+- [ ] `Note` data model with timestamps and encryption flag (no `metadata: dict` field — per-note metadata lives inside the blob header per R2.9)
+- [ ] `DatabaseStore` (SQLite, always-on) via SQLAlchemy ORM — `<data-dir>/notes.db`, `create_all()` for schema init, `title`/`format` plaintext columns for fast listing  `[BL B-42, B-51, B-74] [D-10]`
+- [ ] `BlobCodec` — length-prefixed blob encoder/decoder; encrypt/decrypt with `EncryptionEngine`  `[BL B-43] [D-10]`
 - [ ] `EncryptionEngine` (AES-256-GCM) and `KeyManager`
 - [ ] `PluginBase` and `PluginRegistry` for hook-based extensibility
 
@@ -48,7 +49,7 @@ Establish project foundation: architecture, tooling, tests, docs, agreements.
 - 33 tests pass (`pytest -v`).
 - `test_all.py` green.
 - Clean working tree, all pushed.
-- B-01 through B-23 done.
+- B-01 through B-14, B-16 through B-23, B-42, B-43, B-51, B-74 done (B-15 JSON persistence replaced by SQLite from Sprint 0 per D-10).
 - Agreements and planning docs committed.
 
 *Current status: Not started — all code wiped; rebuild from scratch. Documentation and planning artifacts (sections 5–6 above) are complete.*
@@ -71,22 +72,28 @@ Fix critical bugs, harden edge cases, integrate plugin system.
 - B-32: Passphrase confirmation prompt on encrypt
 - B-33: Fix unencrypted update/delete corrupting encrypted notes
 - B-34: Reject empty/short passphrase (min 8 chars)
-- B-35: Corrupt JSON recovery with `.bak` backup
+- ~~B-35: Corrupt JSON recovery with `.bak` backup~~ — **DROPPED** (SQLite ACID replaces JSON corruption risk; no `.bak` fallback needed) `[D-10]`
 - B-37: Plugin discovery and loading from `plugins/`
 - B-38: Plugin error isolation (try/except in hook dispatch)
 - B-36: `--data-dir` validation (must be directory, writable)
 - B-39: File permission error handling with friendly messages
-- B-40: BDD + unit tests for new edge cases (B-31–B-39 scenarios)
+- B-52: Input validation: reject null bytes and control characters at CLI boundary
+- B-40: BDD + unit tests for new edge cases (B-31–B-34, B-36–B-39, B-52 scenarios — B-35 dropped per D-10)
+- B-65: Alembic schema versioning — introduce after Sprint 0 `create_all()` baseline  `[D-10]`
+- B-66: SQLite WAL mode + retry logic for concurrent access  `[D-10]`
 - B-83: Unit tests for PluginBase and PluginRegistry *(closes test debt from B-18)*
 
 ## Exit Criteria
 - No ID collision after any deletion sequence
 - Passphrase confirmed on encrypt; empty/short rejected
 - Unencrypted operations don't corrupt encrypted notes
-- Corrupt JSON → backup + empty store + warning
+- ~~Corrupt JSON → backup + empty store + warning~~ (dropped — SQLite ACID; no JSON layer) `[D-10]`
 - Plugins load from `plugins/`, hook errors isolated
 - `--data-dir` validated; permission errors caught
+- Null bytes and control characters rejected at all CLI input boundaries
 - All new edge cases covered by BDD or unit tests
+- Alembic configured; `notes.db` schema versioned from Sprint 0 `create_all()` baseline
+- SQLite WAL mode enabled; `OperationalError: database is locked` retried with backoff. Note: concurrent CLI + GUI session writes are prevented at the application layer by session exclusivity (B-101, Sprint 4) — WAL mode provides read-concurrency performance and belt-and-suspenders resilience.
 - All existing 33 tests still pass
 
 ---
@@ -101,38 +108,27 @@ Introduce SQLite local store with optional account layer, database backend with 
 
 ## Items
 - B-41: First-login anonymous note association prompt — one-time, Yes / No / Ask me for each `[LOG 05-04]`
-- B-42: SQLite local store — always-on; `account_id` nullable FK + `synced_at` nullable timestamp on `notes` table `[LOG 05-04]`
-- B-43: Sandbox binary storage — length-prefixed blob (header + raw payload)
-- B-44: PostgreSQL backend for sync server (`DATABASE_URL` env var, `sslmode=require`) `[LOG 05-04]`
 - B-45: User registration with bcrypt password hashing
 - B-46: Login/logout session management (token file, 24h expiry)
 - B-47: Account isolation — scope queries by `account_id`; anonymous notes visible when logged out `[LOG 05-04]`
-- B-48: `migrate` CLI command: JSON → database migration (prompt per encrypted note)
 - B-49: Hybrid storage: 5 MB threshold, encrypted-only filesystem payloads
-- B-51: Parameterized queries via SQLAlchemy ORM
 - B-57: Interactive auth prompts (hide_input=True)
 - B-58: Auth rate limiting — 5 failures → 5-min lockout
 - B-59: Session token file with 24h expiry
 - B-60: Username validation rules
-- B-63: PostgreSQL `sslmode=require` enforcement
 - B-64: `DATABASE_URL` env-var only
-- B-65: Alembic schema versioning
-- B-66: SQLite WAL mode + retry logic for concurrent access
-- B-74: Plaintext `title` + `format` columns for fast listing
+- B-67: Disk-full (`ENOSPC`) error handling at DB and filesystem payload layers
+- B-68: Filesystem payload orphan cleanup on note delete
 - B-75: Session token file permissions (owner only) `[LOG 05-04]`
-- B-52: Input validation: reject null bytes and control characters at CLI boundary
 - B-77: Flat data directory — always `<data-dir>/` layout; no per-user subdirectories `[LOG 05-04]`
-- B-78: Export file permissions + `export --cleanup` command
-- B-79: Alias info warning for encrypted notes
-- B-80: Migration backup auto-delete after successful verification
 - B-81: On `delete-account`: set `account_id = NULL` on local notes; delete server record `[LOG 05-04]`
 - B-96: `accounts` table (local SQLite): `account_id` UUID PK, `username`, `password_hash`, etc. `[LOG 05-04]`
 
+*(B-42, B-43, B-51, B-74 done in Sprint 0; B-52, B-65, B-66 done in Sprint 1; B-44, B-53, B-63 moved to Sprint 5A; B-78, B-79 moved to Sprint 3; B-48 migrate command DROPPED; B-80 DROPPED — D-10)*
+
 ## Exit Criteria
 - App starts and all CRUD operations work with no login or configuration required `[LOG 05-04]`
-- SQLite always-on (WAL mode); `account_id` nullable; `synced_at` nullable on `notes` table `[LOG 05-04]`
-- Sandbox binary storage: notes stored as length-prefixed blobs; encrypted notes are AES-256-GCM ciphertext; `account_id`, `note_id`, `is_encrypted`, `nonce`, `salt`, `title`, `format`, `payload_location`, `synced_at` in plaintext columns `[LOG 05-04]`
-- `title` and `format` columns enable fast listing without blob parsing
+- Auth layer wired: `account_id` nullable FK + `synced_at` nullable on `notes` table linked to new account system `[LOG 05-04]`
 - Filesystem storage only for encrypted notes >5 MB; no plaintext files on disk
 - `register`/`login` available but optional; interactive prompts; bcrypt hashing verified
 - Session token file permissions restricted to owner only `[LOG 05-04]`
@@ -140,15 +136,15 @@ Introduce SQLite local store with optional account layer, database backend with 
 - Username validation enforced (3–32 chars, alphanum + underscore, case-insensitive)
 - Expired session blocks sync only; local CRUD unaffected `[LOG 05-04]`
 - First-login anonymous note association prompt shown once if anonymous notes exist `[LOG 05-04]`
-- `migrate` command: alerts user about encrypted notes; prompts passphrase per note; skips on mismatch; JSON backed up
 - All DB queries parameterized via SQLAlchemy; no raw SQL
 - `DATABASE_URL` from env var only; never in config.json
-- Alembic manages schema version
 - Flat data directory: `<data-dir>/files/`, `exports/`, `audit.log` (no per-user subdirs) `[LOG 05-04]`
 - `delete-account` sets `account_id = NULL` on local notes; warns cloud copies deleted `[LOG 05-04]`
-- Export files have restricted permissions; `export --cleanup` available
-- Alias info message displayed when user sets alias on encrypted note
+- Disk-full (`ENOSPC`) caught at DB and filesystem layers; user-facing error shown; operation aborted cleanly
+- Orphaned filesystem payloads cleaned up on note delete; no dangling files after delete
 - All existing 33 tests still pass
+
+*(SQLite always-on, BlobCodec, SQLAlchemy ORM, title/format columns done in Sprint 0; B-52, Alembic + WAL mode done in Sprint 1; B-44, B-53, B-63 PostgreSQL infra moved to Sprint 5A; B-78, B-79 moved to Sprint 3; migrate command DROPPED — D-10)*
 
 ---
 
@@ -165,16 +161,19 @@ Complete plugin system hardening, add override policy and audit trail, wire plug
 - B-25: Audit trail — JSON-per-line log with structured fields and `audit` CLI filters (US-6)
 - B-28: Plugin CLI commands wired into main CLI (US-4)
 - B-26: Config module — known-key whitelist with `set`/`get`/`list`/`reset` (US-7)
-- B-53: Least-privilege PostgreSQL role — no DDL in application role (US-12, US-13)
+- B-29: Substring search — `search <query>` with `--encrypted` flag; case-insensitive; excludes encrypted notes unless flag set (US-8)
+- B-30: Export to text/JSON — `export --format text|json --output <file>` with `--encrypted` flag (US-8)
 - B-54: Strip ANSI/control codes from terminal output (US-1, US-13)
 - B-55: Path traversal prevention for `--data-dir`, `--output`, filesystem payloads (US-1, US-12, US-13)
 - B-56: Plugin sandboxing — read-only note copies, no exec/eval, no raw DB access (US-4, US-13)
 - B-62: Passphrase rotation via `reencrypt <note_id>` (US-2)
 - B-69: Plugin allowlist in config — reject unlisted plugins (US-4)
 - B-70: ~~Config tampering guard — deployment_mode switch requires CONFIRM (US-10)~~ — **REMOVED** (no mode-switching concept) `[LOG 05-04]`
-- B-71: Expand audit trail scope — login/logout/register/delete-account/migrate/export (US-6)
+- B-71: Expand audit trail scope — login/logout/register/delete-account/~~migrate/~~export (US-6) `[migrate dropped — D-10]`
 - B-73: Document passphrase memory-residency limitation (US-2)
 - B-76: Export binary notes — write raw payload file + path reference in manifest (US-8)
+- B-78: Export file permissions + `export --cleanup` command (US-8)
+- B-79: Alias info warning for encrypted notes (US-2)
 
 ## Exit Criteria
 - Override policy triggers on plugin `overrides` declaration; red warning displayed; `CONFIRM OVERRIDE` required; all attempts logged
@@ -184,31 +183,48 @@ Complete plugin system hardening, add override policy and audit trail, wire plug
 - ANSI codes stripped from terminal output
 - Path traversal rejected for all file path inputs
 - Plugin sandboxing enforced at hook dispatch
-- All existing tests still pass; new tests cover Sprint 3 behavior; new tests cover deployment modes, auth, and injection prevention
+- `search` returns case-insensitive substring matches; encrypted notes excluded unless `--encrypted` flag given; passphrase prompted once per invocation
+- Export to text/JSON produces correct output; exported file permissions restricted; `export --cleanup` removes output files
+- Alias info warning displayed when user accesses an encrypted note by alias
+- All existing tests still pass; new tests cover Sprint 3 behavior and new export/search flows
 
 ---
 
 # Sprint 4 Plan — Personal GUI *(Planned)*
 
 ## Goal
-Deliver a minimal desktop or local-web GUI for personal users that reuses the existing core modules (no logic duplication) and has a clean, task-focused design comparable to mainstream note apps.
+Deliver a minimal desktop GUI for personal users that reuses the existing core modules (no logic duplication) and has a clean, task-focused design comparable to mainstream note apps.
 
 ## Duration
 1 sprint (1 week)
 
-## Decision Gate (before sprint start)
-- ADR-13 decided: **PySide6 desktop app** (see `docs/design.md` ADR-13) `[LOG 05-04]`
+## Decision Gates (before sprint start)
+- ADR-13 decided: **PySide6 desktop app** (see `planning/design.md` ADR-13) `[LOG 05-04]`
+- D-13 decided: **`AppController` orchestrator** (startup wiring); **lazy passphrase prompt**; **session exclusivity** via PID lock file; **5-min idle auto-lock** for encrypted notes. See §4.7. `[D-13 resolved 2026-05-13]`
 
 ## Items
-- B-84: Personal GUI framework decision (ADR-13) + project skeleton (US-9)
-- B-85: Personal GUI CRUD screens — add, view, list, edit, delete with passphrase modal (US-9)
+- B-84: PySide6 GUI skeleton — `astranotes gui` → `AppController.run()` → `QApplication` + `DesktopGUI`; two-pane layout (note list left, editor right); toolbar; lazy passphrase `QDialog` on note open (not at startup) `[D-13]` (US-9)
+- B-85: GUI CRUD screens — add, view, list, edit, delete notes with passphrase dialog for encrypted notes (US-9)
+- B-97: System tray icon — minimize to tray on window close; tray menu: Show/Hide, Quit; `QSystemTrayIcon` + `QMenu` (US-9)
+- B-98: GUI passphrase security level — `security_level` config key; `high` (default): clear passphrase on note close / navigate away / minimize / focus loss; `session`: clear only on app close (US-9)
+- B-99: Plugin manifest validation — `load_manifests()` validates `plugin.json`; required fields; rejects `is_official` in manifest; rejects malformed manifests `[REQ R4.11, R4.12]` `[D-12]` (US-4)
+- B-100: Trust-tier enforcement in `PluginRegistry.register_plugin()` — `is_official` server-injected only; `False` → `EditorProvider` only; `True` → full API `[REQ R4.13]` `[D-12]` (US-4)
+- B-101: `AppController` + `SessionManager` session lock — PID lock file at `<data-dir>/.app.lock`; alive PID → error dialog + exit; stale PID → overwrite; `release_lock()` on exit `[REQ R9.7]` `[D-13]` (US-9)
+- B-102: Encrypted note idle auto-lock — 5-min `QTimer`; on timeout auto-close encrypted note, clear passphrase, redisplay `[Encrypted]`; reset on user interaction `[REQ R9.8]` `[D-13]` (US-9)
 
 ## Exit Criteria
-- GUI launches without server dependency; uses SQLite personal-mode backend via `NoteStore`
+- `astranotes gui` launches via `AppController` → `QApplication` + `DesktopGUI`; uses `DatabaseStore` via constructor injection; no server dependency
+- Session exclusivity enforced: second launch (GUI or CLI) while a session is active shows error dialog and exits; stale lock overwritten silently `[REQ R9.7]`
+- Note list populates on startup showing `[Encrypted]` placeholder for encrypted notes; **no passphrase prompt at startup** `[D-13 Q2]`
+- Passphrase `QDialog` shown lazily when user opens an encrypted note
+- `security_level = high` (default): passphrase cleared from memory on note close / navigate away / minimize / focus loss; `session`: cleared on app close only `[B-98]`
+- 5-minute idle timer auto-closes open encrypted note and clears passphrase; timer resets on any interaction `[REQ R9.8]`
 - Full CRUD works through the GUI; all operations produce identical data effects as CLI equivalents
-- Passphrase dialog appears for encrypted notes; passphrase is not stored by the GUI layer
+- Plugin manifests validated at startup; malformed or `is_official`-containing manifests rejected with warning `[B-99]`
+- Trust tiers enforced at `register_plugin()` `[B-100]`
+- System tray icon present; minimize to tray; Show/Hide and Quit menu items work `[B-97]`
 - All existing core-module tests continue to pass; at least 5 GUI-level integration tests added
-- ADR-13 recorded in `docs/design.md`
+- ADR-13 and D-13 recorded in `planning/design.md` (done)
 
 ---
 
@@ -226,6 +242,9 @@ Deliver optional cloud sync: a FastAPI push/pull sync server and PySide6 sync-en
 - ADR-13 decided: **PySide6 desktop app** (GUI for Sprint 4 + Sprint 5; sync features gated by session token) `[LOG 05-04]`
 
 ## Items — Sprint 5A (Sync Server)
+- B-44: PostgreSQL backend for sync server (`DATABASE_URL` env var) `[LOG 05-04]`
+- B-53: Least-privilege PostgreSQL role — no DDL in application role (US-12, US-13)
+- B-63: PostgreSQL `sslmode=require` enforcement (US-12, US-13)
 - B-86: Sync server skeleton (FastAPI) — `POST /sync/push` and `GET /sync/pull?since=<ts>` endpoints; conflict table `[LOG 05-04]`
 - B-88: JWT / bearer token validation middleware — sync endpoints require valid JWT; HTTP 401 otherwise (US-11, US-14)
 - B-92: HTTPS/TLS enforcement — reject plain HTTP connections (US-13, US-14)
@@ -241,9 +260,10 @@ Deliver optional cloud sync: a FastAPI push/pull sync server and PySide6 sync-en
 
 ## Exit Criteria
 - `sync push` sends all account-associated notes newer than `synced_at` to sync server; `sync pull` fetches and merges; both update `synced_at` on success `[LOG 05-04]`
-- Conflict: last-write-wins by `modified_at`; both versions in `note_conflicts` table for 30 days `[LOG 05-04]`
-- Google OAuth login flow works end-to-end in the desktop app (system browser opens for consent; redirect captured on ephemeral localhost callback); JWT issued and validated by authlib `[LOG 05-04]`
+- Conflict: 2-pane `MergeWindow` on desktop (local read-only left, remote editable right); user merges and saves final version; no `note_conflicts` table `[LOG 05-04]` `[D-14 decided 2026-05-14]`
+- Google OAuth login flow works end-to-end in the desktop app (system browser opens for consent; redirect captured on `astranotes://callback` custom URI scheme — see ADR-12); JWT issued and validated by authlib `[LOG 05-04]`
 - Desktop app sync button triggers push/pull when a valid session token is present
+- PostgreSQL backend connected via `DATABASE_URL` env var; `sslmode=require` enforced; application role has no DDL privileges
 - All sync server traffic served over HTTPS; plain HTTP rejected
 - All previous tests still pass; sync endpoint test coverage ≥ 80 % of routes
-- ADR-11, ADR-12, ADR-13 recorded in `docs/design.md` (already done `[LOG 05-04]`)
+- ADR-11, ADR-12, ADR-13 recorded in `planning/design.md` (already done `[LOG 05-04]`)
