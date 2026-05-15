@@ -3,3 +3,10 @@ python-docx
 cryptography
 click
 pytest-bdd
+sqlalchemy
+alembic
+jsonschema
+PySide6
+fastapi
+uvicorn
+authlib
