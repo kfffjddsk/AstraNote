@@ -10,21 +10,67 @@ Key design decisions:
   Encrypted notes store the AES-GCM ciphertext in ``encrypted_blob``.
 - list() returns (account_notes, local_notes) per R1.3 / D-11.
 - Input validation (empty title/content) is enforced in Note.create(). [REQ R1.6]
+- WAL journal mode is enabled on every new connection for read-concurrency. [BL B-66]
+- OperationalError "database is locked" is retried with exponential backoff. [BL B-66]
 
-Refs: [BL B-01–B-14, B-31, B-42, B-51, B-74] [REQ R1, R14] [US-1, US-2]
+Refs: [BL B-01-B-14, B-31, B-42, B-51, B-66, B-74] [REQ R1, R14] [US-1, US-2]
 design §3.1, §4.1, §4.2, §5.2
 """
 from __future__ import annotations
 
 import dataclasses
+import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import URL as _DbURL
-from sqlalchemy import Boolean, Column, LargeBinary, Text, create_engine
+from sqlalchemy import Boolean, Column, LargeBinary, Text, create_engine, event
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# WAL mode + locked-DB retry  [BL B-66]
+# ---------------------------------------------------------------------------
+
+_RETRY_ATTEMPTS: int = 5
+_RETRY_BASE_DELAY: float = 0.05   # seconds; doubles each attempt
+
+
+def _enable_wal(dbapi_conn, _connection_record) -> None:  # type: ignore[type-arg]
+    """Set WAL journal mode on every new SQLite connection.
+
+    WAL provides better read-concurrency and is resilient to reader/writer
+    contention in single-writer scenarios.  [BL B-66]
+    """
+    cur = dbapi_conn.cursor()
+    cur.execute("PRAGMA journal_mode=WAL")
+    cur.close()
+
+
+def _execute_with_retry(fn):
+    """Retry *fn()* up to _RETRY_ATTEMPTS times on SQLite 'database is locked'.
+
+    Uses exponential backoff starting at _RETRY_BASE_DELAY seconds.  All other
+    exceptions propagate immediately.  [BL B-66]
+    """
+    delay = _RETRY_BASE_DELAY
+    for attempt in range(1, _RETRY_ATTEMPTS + 1):
+        try:
+            return fn()
+        except OperationalError as exc:
+            if "database is locked" not in str(exc).lower() or attempt == _RETRY_ATTEMPTS:
+                raise
+            logger.warning(
+                "SQLite database is locked (attempt %d/%d); retrying in %.2fs.",
+                attempt, _RETRY_ATTEMPTS, delay,
+            )
+            time.sleep(delay)
+            delay *= 2
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +235,8 @@ class DatabaseStore:
         # from paths that contain SQLAlchemy URL special characters.
         url = _DbURL.create("sqlite", database=str(db_path))
         self._engine = create_engine(url, echo=False)
+        # Enable WAL mode on every new connection.  [BL B-66]
+        event.listen(self._engine, "connect", _enable_wal)
         _Base.metadata.create_all(self._engine)
         self._Session = sessionmaker(bind=self._engine)
 
@@ -203,20 +251,23 @@ class DatabaseStore:
         ``content`` is left NULL.  For unencrypted notes, ``note.content`` is
         stored in the ``content`` column.  [REQ R14.6]
         """
-        with self._Session() as session:
-            row = _NoteRow(
-                note_id=note.id,
-                account_id=None,
-                title=note.title,
-                content=note.content if not note.encrypted else None,
-                encrypted_blob=note.blob if note.encrypted else None,
-                is_encrypted=note.encrypted,
-                created_at=note.created_at,
-                modified_at=note.modified_at,
-            )
-            session.add(row)
-            session.commit()
-        return note.id
+        def _do() -> str:
+            with self._Session() as session:
+                row = _NoteRow(
+                    note_id=note.id,
+                    account_id=None,
+                    title=note.title,
+                    content=note.content if not note.encrypted else None,
+                    encrypted_blob=note.blob if note.encrypted else None,
+                    is_encrypted=note.encrypted,
+                    created_at=note.created_at,
+                    modified_at=note.modified_at,
+                )
+                session.add(row)
+                session.commit()
+            return note.id
+
+        return _execute_with_retry(_do)
 
     # ------------------------------------------------------------------
     # Get
@@ -229,11 +280,14 @@ class DatabaseStore:
         populated — the caller decrypts the blob with BlobCodec if it has a key.
         [BL B-74] [D-07] [D-11]
         """
-        with self._Session() as session:
-            row = session.get(_NoteRow, note_id)
-            if row is None:
-                return None
-            return _row_to_note(row)
+        def _do() -> Optional[Note]:
+            with self._Session() as session:
+                row = session.get(_NoteRow, note_id)
+                if row is None:
+                    return None
+                return _row_to_note(row)
+
+        return _execute_with_retry(_do)
 
     # ------------------------------------------------------------------
     # Update
@@ -255,20 +309,23 @@ class DatabaseStore:
           satisfying the co-existence invariant.  [REQ R2.12] [BL B-33]
         - Raises :class:`KeyError` if *note_id* is not found.  [REQ R1.7]
         """
-        with self._Session() as session:
-            row = session.get(_NoteRow, note_id)
-            if row is None:
-                raise KeyError(f"Note {note_id!r} not found.")
-            if title is not None:
-                row.title = title
-            if not row.is_encrypted and content is not None:
-                row.content = content
-            if row.is_encrypted and blob is not None:
-                row.encrypted_blob = blob
-            row.modified_at = _utcnow()
-            session.commit()
-            # Access attributes while session is still open (auto-refresh after commit).
-            return _row_to_note(row)
+        def _do() -> Note:
+            with self._Session() as session:
+                row = session.get(_NoteRow, note_id)
+                if row is None:
+                    raise KeyError(f"Note {note_id!r} not found.")
+                if title is not None:
+                    row.title = title
+                if not row.is_encrypted and content is not None:
+                    row.content = content
+                if row.is_encrypted and blob is not None:
+                    row.encrypted_blob = blob
+                row.modified_at = _utcnow()
+                session.commit()
+                # Access attributes while session is still open (auto-refresh after commit).
+                return _row_to_note(row)
+
+        return _execute_with_retry(_do)
 
     # ------------------------------------------------------------------
     # Delete
@@ -280,12 +337,15 @@ class DatabaseStore:
         Raises :class:`KeyError` if not found.  Other notes — including
         co-stored encrypted ones — are never affected.  [REQ R2.12] [BL B-33]
         """
-        with self._Session() as session:
-            row = session.get(_NoteRow, note_id)
-            if row is None:
-                raise KeyError(f"Note {note_id!r} not found.")
-            session.delete(row)
-            session.commit()
+        def _do() -> None:
+            with self._Session() as session:
+                row = session.get(_NoteRow, note_id)
+                if row is None:
+                    raise KeyError(f"Note {note_id!r} not found.")
+                session.delete(row)
+                session.commit()
+
+        _execute_with_retry(_do)
 
     # ------------------------------------------------------------------
     # List
@@ -303,17 +363,20 @@ class DatabaseStore:
         Reads only the plaintext ``title`` / ``format`` columns; never parses
         blobs.  [REQ R1.3] [BL B-74] [D-11]
         """
-        with self._Session() as session:
-            rows = session.query(_NoteRow).all()
-            account_notes: list[Note] = []
-            local_notes: list[Note] = []
-            for row in rows:
-                note = _row_to_note(row, listing_mode=True)
-                if account_id and row.account_id == account_id:
-                    account_notes.append(note)
-                else:
-                    local_notes.append(note)
-        return account_notes, local_notes
+        def _do() -> tuple[list[Note], list[Note]]:
+            with self._Session() as session:
+                rows = session.query(_NoteRow).all()
+                account_notes: list[Note] = []
+                local_notes: list[Note] = []
+                for row in rows:
+                    note = _row_to_note(row, listing_mode=True)
+                    if account_id and row.account_id == account_id:
+                        account_notes.append(note)
+                    else:
+                        local_notes.append(note)
+            return account_notes, local_notes
+
+        return _execute_with_retry(_do)
 
 
 # ---------------------------------------------------------------------------
