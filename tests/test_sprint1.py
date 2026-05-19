@@ -70,6 +70,7 @@ def test_wal_mode_enabled(tmp_path: Path) -> None:
     store = DatabaseStore(tmp_path)
     with store._engine.connect() as conn:
         result = conn.exec_driver_sql("PRAGMA journal_mode").fetchone()
+    assert result is not None, "PRAGMA journal_mode returned no rows"
     assert result[0].upper() == "WAL"
 
 
@@ -671,7 +672,9 @@ def test_cli_update_title(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "Updated" in result.output
     store = DatabaseStore(tmp_path)
-    assert store.get(note_id).title == "New"
+    fetched = store.get(note_id)
+    assert fetched is not None, "note was not persisted after update"
+    assert fetched.title == "New"
 
 
 @pytest.mark.cli
@@ -683,7 +686,9 @@ def test_cli_update_content(tmp_path: Path) -> None:
     result = runner.invoke(cli, args + ["update", note_id, "--content", "new body"])
     assert result.exit_code == 0
     store = DatabaseStore(tmp_path)
-    assert store.get(note_id).content == "new body"
+    fetched = store.get(note_id)
+    assert fetched is not None, "note was not persisted after update"
+    assert fetched.content == "new body"
 
 
 @pytest.mark.cli
