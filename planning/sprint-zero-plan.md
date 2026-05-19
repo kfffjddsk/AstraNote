@@ -9,28 +9,28 @@ Establish project foundation: architecture, tooling, tests, docs, agreements.
 ## Deliverables
 
 ### 1. Project Setup
-- [ ] Python project structure (`src/`, `tests/`, `plugins/`, `docs/`)
+- [x] Python project structure (`src/`, `tests/`, `plugins/`, `docs/`)
 - [x] Virtual environment with pinned dependencies (`requirements.txt`)
 - [x] `pytest.ini` configured with test paths and markers
 
 ### 2. Core Architecture
-- [ ] `Note` data model with timestamps and encryption flag (no `metadata: dict` field — per-note metadata lives inside the blob header per R2.9)
-- [ ] `DatabaseStore` (SQLite, always-on) via SQLAlchemy ORM — `<data-dir>/notes.db`, `create_all()` for schema init, `title`/`format` plaintext columns for fast listing  `[BL B-42, B-51, B-74] [D-10]`
-- [ ] `BlobCodec` — length-prefixed blob encoder/decoder; encrypt/decrypt with `EncryptionEngine`  `[BL B-43] [D-10]`
-- [ ] `EncryptionEngine` (AES-256-GCM) and `KeyManager`
-- [ ] `PluginBase` and `PluginRegistry` for hook-based extensibility
+- [x] `Note` data model with timestamps and encryption flag (no `metadata: dict` field — per-note metadata lives inside the blob header per R2.9)
+- [x] `DatabaseStore` (SQLite, always-on) via SQLAlchemy ORM — `<data-dir>/notes.db`, `create_all()` for schema init, `title`/`format` plaintext columns for fast listing  `[BL B-42, B-51, B-74] [D-10]`
+- [x] `BlobCodec` — length-prefixed blob encoder/decoder; encrypt/decrypt with `EncryptionEngine`  `[BL B-43] [D-10]`
+- [x] `EncryptionEngine` (AES-256-GCM) and `KeyManager`
+- [x] `PluginBase` and `PluginRegistry` for hook-based extensibility
 
 ### 3. CLI Foundation
-- [ ] Click-based CLI with `add`, `get`, `list`, `update`, `delete`
-- [ ] Global `--data-dir` option
-- [ ] Input validation and non-zero exit codes on errors
+- [ ] Click-based CLI with `add`, `get`, `list`, `update`, `delete` *(deferred to Sprint 1)*
+- [ ] Global `--data-dir` option *(deferred to Sprint 1 — B-19)*
+- [ ] Input validation and non-zero exit codes on errors *(deferred to Sprint 1 — B-23)*
 
 ### 4. Testing Infrastructure
-- [ ] `conftest.py` with shared fixtures (runner, temp dir, cli_app)
-- [ ] BDD feature files for all CRUD + encryption scenarios (17 scenarios)
-- [ ] Unit tests for core modules (16 tests)
-- [ ] Bounded stress test (1001 notes)
-- [ ] `test_all.py` runner (unit + BDD pillars)
+- [x] `conftest.py` with shared fixtures and `make_encrypted_note` helper
+- [x] BDD feature files for all CRUD + encryption scenarios (17 scenarios)
+- [x] Unit tests for core modules (23 tests, including 7 injection-hardening tests)
+- [x] Bounded stress test (1001 notes)
+- [x] `test_all.py` runner (unit + BDD pillars)
 
 ### 5. Documentation & Process
 - [x] Working Agreement in `Copilot/`
@@ -46,13 +46,12 @@ Establish project foundation: architecture, tooling, tests, docs, agreements.
 - [x] Sprint zero plan (`planning/sprint-zero-plan.md`)
 
 ## Exit Criteria
-- 33 tests pass (`pytest -v`).
-- `test_all.py` green.
-- Clean working tree, all pushed.
-- B-01 through B-14, B-16 through B-23, B-42, B-43, B-51, B-74 done (B-15 JSON persistence replaced by SQLite from Sprint 0 per D-10).
-- Agreements and planning docs committed.
-
-*Current status: Not started — all code wiped; rebuild from scratch. Documentation and planning artifacts (sections 5–6 above) are complete.*
+- ~~33 tests pass~~ → **46 tests pass, 47 including stress** ✅
+- `test_all.py` green ✅
+- Clean working tree, all committed ✅
+- B-01–B-14, B-16–B-22, B-31, B-33, B-34, B-38, B-42, B-43, B-51, B-74 done ✅
+- B-19, B-23 (CLI) deferred to Sprint 1
+- Agreements and planning docs committed ✅
 
 ## Next Sprint Candidates
 *B-24, B-25, B-28 were originally flagged here. Sprint 1 was reoriented to critical bug fixes (B-31–B-40) first. B-24, B-25, B-28 are deferred to Sprint 3 after database and auth infrastructure (Sprint 2) is in place. See Sprint 3 Plan below.*
@@ -68,19 +67,21 @@ Fix critical bugs, harden edge cases, integrate plugin system.
 1 sprint (1 week)
 
 ## Items
-- B-31: Fix ID collision — use UUID or max-ID+1
+- B-19: `--data-dir` global option *(deferred from Sprint 0)*
+- B-23: Non-zero exit codes on CLI errors *(deferred from Sprint 0)*
+- ~~B-31~~: Fix ID collision — **Done in Sprint 0** (`uuid4` used in `Note.create()`)
 - B-32: Passphrase confirmation prompt on encrypt
-- B-33: Fix unencrypted update/delete corrupting encrypted notes
-- B-34: Reject empty/short passphrase (min 8 chars)
-- ~~B-35: Corrupt JSON recovery with `.bak` backup~~ — **DROPPED** (SQLite ACID replaces JSON corruption risk; no `.bak` fallback needed) `[D-10]`
-- B-37: Plugin discovery and loading from `plugins/`
-- B-38: Plugin error isolation (try/except in hook dispatch)
+- ~~B-33~~: Fix unencrypted update/delete corrupting encrypted notes — **Done in Sprint 0** (co-existence invariant implemented + tested)
+- ~~B-34~~: Reject empty/short passphrase (min 8 chars) — **Done in Sprint 0** (`KeyManager` validates ≥ 8 chars)
+- ~~B-35: Corrupt JSON recovery with `.bak` backup~~ — **DROPPED** (SQLite ACID; no `.bak` fallback needed) `[D-10]`
 - B-36: `--data-dir` validation (must be directory, writable)
+- B-37: Plugin discovery and loading from `plugins/`
+- ~~B-38~~: Plugin error isolation (try/except in hook dispatch) — **Done in Sprint 0** (`PluginRegistry.call_hook()` catches per-handler)
 - B-39: File permission error handling with friendly messages
+- B-40: BDD + unit tests for new edge cases (B-32, B-36, B-37, B-39, B-52 scenarios)
 - B-52: Input validation: reject null bytes and control characters at CLI boundary
-- B-40: BDD + unit tests for new edge cases (B-31–B-34, B-36–B-39, B-52 scenarios — B-35 dropped per D-10)
-- B-65: Alembic schema versioning — introduce after Sprint 0 `create_all()` baseline  `[D-10]`
-- B-66: SQLite WAL mode + retry logic for concurrent access  `[D-10]`
+- B-65: Alembic schema versioning — introduce after Sprint 0 `create_all()` baseline `[D-10]`
+- B-66: SQLite WAL mode + retry logic for concurrent access `[D-10]`
 - B-83: Unit tests for PluginBase and PluginRegistry *(closes test debt from B-18)*
 
 ## Exit Criteria
@@ -94,7 +95,7 @@ Fix critical bugs, harden edge cases, integrate plugin system.
 - All new edge cases covered by BDD or unit tests
 - Alembic configured; `notes.db` schema versioned from Sprint 0 `create_all()` baseline
 - SQLite WAL mode enabled; `OperationalError: database is locked` retried with backoff. Note: concurrent CLI + GUI session writes are prevented at the application layer by session exclusivity (B-101, Sprint 4) — WAL mode provides read-concurrency performance and belt-and-suspenders resilience.
-- All existing 33 tests still pass
+- All existing 46 tests still pass (47 including stress)
 
 ---
 
