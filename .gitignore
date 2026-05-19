@@ -40,3 +40,15 @@ htmlcov/
 # secret files
 .env
 local.env
+
+# SQLite / database files
+*.db
+*.sqlite
+*.sqlite3
+
+# AstraNotes user data directory
+.astranotes/
+
+# Alembic — keep migrations tracked; ignore only runtime artifacts
+alembic/__pycache__/
+alembic/versions/__pycache__/
