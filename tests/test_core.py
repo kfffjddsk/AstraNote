@@ -1,13 +1,25 @@
 """Unit tests for AstraNotes core modules.
 
-23 tests covering: Note dataclass, DatabaseStore CRUD, encryption, BlobCodec,
-KeyManager validation, co-existence invariants, and injection-hardening checks.
-1  stress test (1 001 notes) marked ``stress``.
+39 unit tests + 1 stress test covering:
+  §1  Note dataclass — create, update (title-only, content-only, both, no-op), validation
+  §2  DatabaseStore.add / get — persistence, encrypted blob, placeholder title
+  §3  DatabaseStore.update — unencrypted, encrypted (content ignored / blob replaced),
+      content-only (title skipped), not-found KeyError
+  §4  DatabaseStore.delete — remove, not-found KeyError
+  §5  DatabaseStore.list — empty store, mixed encryption, account_id routing  [D-11]
+  §6  Co-existence invariant — unencrypted update does not corrupt encrypted blob  [BL B-33]
+  §7  Encryption / BlobCodec — AES-256-GCM roundtrip, public derive_key, wrong passphrase,
+      BlobCodec encode/decode, truncated/too-short blob guards, full pipeline
+  §8  Stress — 1 001 notes; list < 0.5 s  [BL B-22]
+  §9  KeyManager validation — short, empty, whitespace passphrases  [BL B-34]
+  §10 Injection hardening — null bytes, oversized header, JSON type confusion,
+      short ciphertext  [OWASP A03, A08]
 
-Refs: [BL B-21, B-22] [REQ R1, R2, R3.5, R14] planning/sprint-zero-plan.md §4
+Refs: [BL B-21, B-22, B-33, B-34] [REQ R1, R2, R3.5, R14] planning/sprint-zero-plan.md §4
 """
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 
@@ -15,7 +27,7 @@ import pytest
 from cryptography.exceptions import InvalidTag
 
 from src.core.blob_codec import BlobCodec
-from src.core.notes import DatabaseStore, Note
+from src.core.notes import DatabaseStore, Note, _NoteRow
 from src.core.security import EncryptionEngine, KeyManager
 from tests.conftest import _TEST_ITERATIONS, make_encrypted_note
 
@@ -67,6 +79,18 @@ def test_note_update_noop_when_no_args() -> None:
     before = (note.title, note.content, note.modified_at)
     note.update()
     assert (note.title, note.content, note.modified_at) == before
+
+
+@pytest.mark.unit
+def test_note_update_content_only_refreshes_modified_at() -> None:
+    """update(content=…) changes content and bumps modified_at; title is unchanged."""
+    note = _plain_note("Title", "Old body")
+    original_ts = note.modified_at
+    time.sleep(0.01)  # ensure clock advances
+    note.update(content="New body")
+    assert note.content == "New body"
+    assert note.title == "Title"          # must not change
+    assert note.modified_at > original_ts
 
 
 @pytest.mark.unit
@@ -165,6 +189,45 @@ def test_store_update_not_found_raises(tmp_store: DatabaseStore) -> None:
         tmp_store.update("ghost-id", title="X")
 
 
+@pytest.mark.unit
+def test_store_update_content_only_leaves_title_unchanged(tmp_store: DatabaseStore) -> None:
+    """update() with title=None must update only content and leave title untouched."""
+    note = _plain_note("Keep", "Old body")
+    tmp_store.add(note)
+    updated = tmp_store.update(note.id, content="New body")
+    assert updated.title == "Keep"
+    assert updated.content == "New body"
+    fetched = tmp_store.get(note.id)
+    assert fetched is not None
+    assert fetched.title == "Keep"
+    assert fetched.content == "New body"
+
+
+@pytest.mark.unit
+def test_store_update_encrypted_note_ignores_plaintext_content(tmp_store: DatabaseStore) -> None:
+    """update() content= on an encrypted note must be silently ignored; blob is untouched."""
+    note = _enc_note()
+    tmp_store.add(note)
+    original_blob = tmp_store.get(note.id).blob  # type: ignore[union-attr]
+    updated = tmp_store.update(note.id, content="attempted plaintext")
+    assert updated.encrypted is True
+    assert updated.content == ""         # content column is never set for encrypted rows
+    assert updated.blob == original_blob # blob must be unchanged
+
+
+@pytest.mark.unit
+def test_store_update_encrypted_note_blob(tmp_store: DatabaseStore) -> None:
+    """update(blob=…) on an encrypted note must replace the stored ciphertext."""
+    note = _enc_note()
+    tmp_store.add(note)
+    new_blob = b"re_encrypted_" * 4
+    updated = tmp_store.update(note.id, blob=new_blob)
+    assert updated.blob == new_blob
+    fetched = tmp_store.get(note.id)
+    assert fetched is not None
+    assert fetched.blob == new_blob
+
+
 # ===========================================================================
 # 4. DatabaseStore — delete
 # ===========================================================================
@@ -197,6 +260,34 @@ def test_store_list_empty_returns_empty_tuple(tmp_store: DatabaseStore) -> None:
     account_notes, local_notes = tmp_store.list()
     assert account_notes == []
     assert local_notes == []
+
+
+@pytest.mark.unit
+def test_store_list_returns_account_notes_for_matching_account_id(tmp_store: DatabaseStore) -> None:
+    """list(account_id=…) routes notes with a matching account_id to account_notes
+    and keeps anonymous notes in local_notes.  [D-11] [REQ R1.3]"""
+    # Public add() always writes account_id=NULL; insert a row directly to
+    # exercise the account_notes bucket in _do().
+    with tmp_store._Session() as session:
+        row = _NoteRow(
+            note_id="acct-001",
+            account_id="user-abc",
+            title="Account Note",
+            content="visible",
+            is_encrypted=False,
+            created_at="2026-01-01T00:00:00+00:00",
+            modified_at="2026-01-01T00:00:00+00:00",
+        )
+        session.add(row)
+        session.commit()
+    local_note = _plain_note("Local", "body")
+    tmp_store.add(local_note)
+
+    account_notes, local_notes = tmp_store.list(account_id="user-abc")
+    assert len(account_notes) == 1
+    assert account_notes[0].title == "Account Note"
+    assert len(local_notes) == 1
+    assert local_notes[0].title == "Local"
 
 
 @pytest.mark.unit
@@ -262,6 +353,14 @@ def test_encryption_roundtrip() -> None:
 
 
 @pytest.mark.unit
+def test_encryption_engine_public_derive_key_matches_private() -> None:
+    """Public derive_key() must return the same bytes as the private _derive_key()."""
+    engine = EncryptionEngine("TestPass1", iterations=_TEST_ITERATIONS)
+    salt = os.urandom(EncryptionEngine.SALT_LEN)
+    assert engine.derive_key(salt) == engine._derive_key(salt)
+
+
+@pytest.mark.unit
 def test_wrong_passphrase_raises_invalid_tag() -> None:
     """decrypt() with the wrong passphrase must raise InvalidTag.  [BL B-06] [REQ R2.8]"""
     engine_enc = EncryptionEngine("CorrectPass1", iterations=_TEST_ITERATIONS)
@@ -279,6 +378,20 @@ def test_keymanager_rejects_short_passphrase() -> None:
 
 
 @pytest.mark.unit
+def test_keymanager_rejects_empty_passphrase() -> None:
+    """KeyManager must reject an empty passphrase.  [BL B-34]"""
+    with pytest.raises(ValueError, match="empty"):
+        KeyManager("")
+
+
+@pytest.mark.unit
+def test_keymanager_rejects_whitespace_only_passphrase() -> None:
+    """KeyManager must reject a whitespace-only passphrase.  [BL B-34]"""
+    with pytest.raises(ValueError, match="empty"):
+        KeyManager("        ")
+
+
+@pytest.mark.unit
 def test_blobcodec_encode_decode_roundtrip() -> None:
     """BlobCodec.encode() → decode() recovers header and payload exactly."""
     header = {"title": "My Note", "format": "text/plain"}
@@ -287,6 +400,23 @@ def test_blobcodec_encode_decode_roundtrip() -> None:
     decoded_header, decoded_payload = BlobCodec.decode(blob)
     assert decoded_header == header
     assert decoded_payload == payload
+
+
+@pytest.mark.unit
+def test_blobcodec_decode_rejects_blob_shorter_than_prefix() -> None:
+    """BlobCodec.decode() must reject a blob shorter than the 4-byte length prefix."""
+    with pytest.raises(ValueError, match="too short"):
+        BlobCodec.decode(b"ab")  # 2 bytes < 4-byte prefix
+
+
+@pytest.mark.unit
+def test_blobcodec_decode_rejects_truncated_body() -> None:
+    """BlobCodec.decode() must reject a blob whose body is shorter than the declared header length."""
+    import struct
+    # Prefix declares a 50-byte header; we only supply 5 bytes of it.
+    blob = struct.pack(">I", 50) + b"x" * 5
+    with pytest.raises(ValueError, match="truncated"):
+        BlobCodec.decode(blob)
 
 
 @pytest.mark.unit

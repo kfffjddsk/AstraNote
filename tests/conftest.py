@@ -3,10 +3,24 @@
 Available to all test files and BDD step definitions via normal pytest
 fixture injection.
 
+Isolation strategy:
+  Both ``tmp_store`` and ``tmp_path`` save files under
+  ``.test_db/<sanitised_test_name>/`` so every database created during a run
+  survives on disk and can be opened with a GUI tool (e.g. DB Browser for
+  SQLite, SQLite Viewer VS Code extension).  The directory is wiped *before*
+  the test starts so stale data never leaks between runs.
+
+  ``tmp_store`` — returns a ready ``DatabaseStore``; used by unit tests that
+    need direct store access.
+  ``tmp_path``  — returns the raw ``Path``; used by CLI tests and BDD steps
+    that pass the directory to the CLI via ``--data-dir``.
+
 Refs: planning/sprint-zero-plan.md §4 (Testing Infrastructure)
 """
 from __future__ import annotations
 
+import re
+import shutil
 from pathlib import Path
 
 import pytest
@@ -27,10 +41,37 @@ _TEST_ITERATIONS = 1_000
 # ---------------------------------------------------------------------------
 
 
+def _safe_test_dir(request: pytest.FixtureRequest) -> Path:
+    """Return a per-test path under .test_db/, wiped clean before the test."""
+    safe_name = re.sub(r"[^\w\-]", "_", request.node.name)[:80]
+    test_dir = Path(".test_db") / safe_name
+    if test_dir.exists():
+        shutil.rmtree(test_dir)
+    test_dir.mkdir(parents=True, exist_ok=True)
+    return test_dir
+
+
 @pytest.fixture()
-def tmp_store(tmp_path: Path) -> DatabaseStore:
-    """Fresh DatabaseStore backed by a temp directory."""
-    return DatabaseStore(tmp_path)
+def tmp_path(request: pytest.FixtureRequest) -> Path:  # type: ignore[override]
+    """Override of pytest's built-in ``tmp_path``.
+
+    Saves to ``.test_db/<sanitised_test_name>/`` so any database created by a
+    CLI test or BDD step survives the run for GUI inspection, instead of being
+    deleted automatically by pytest.
+    """
+    return _safe_test_dir(request)
+
+
+@pytest.fixture()
+def tmp_store(request: pytest.FixtureRequest) -> DatabaseStore:
+    """Fresh DatabaseStore in an isolated sub-directory under .test_db/.
+
+    Each test gets its own ``notes.db`` named after the test node, so tests
+    never share rows and any DB file can be opened in a GUI tool after the run.
+    The directory is wiped *before* the test starts (stale data from a
+    previous run does not leak in), but left on disk afterwards for inspection.
+    """
+    return DatabaseStore(_safe_test_dir(request))
 
 
 @pytest.fixture()

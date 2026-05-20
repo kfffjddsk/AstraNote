@@ -3,14 +3,22 @@
 Coverage:
   §1  DatabaseStore WAL mode + locked-DB retry  [BL B-66]
   §2  PluginBase / PluginRegistry contract  [BL B-83]
-  §3  Plugin auto-discovery from filesystem  [BL B-37]
+  §3  Plugin auto-discovery from filesystem — valid plugin, dunder skipped,
+       broken import skipped, instantiation error skipped, multiple classes,
+       spec_from_file_location returns None, no-subclasses file  [BL B-37]
   §4  CLI input-validation helpers  [BL B-52]
-  §5  --data-dir validation  [BL B-36]
-  §6  CLI ``add`` command  [BL B-19, B-23, B-32, B-52]
+  §5  --data-dir validation — created if missing, must be directory, env var,
+       defaults to ~/.astranotes, not writable  [BL B-36, B-39]
+  §6  CLI ``add`` command — UUID, persistence, validation, empty/whitespace
+       content, encrypted alias stored as placeholder  [BL B-19, B-23, B-32, B-52]
   §7  CLI ``get`` command
-  §8  CLI ``list`` command
-  §9  CLI ``update`` command
-  §10 CLI ``delete`` command
+  §8  CLI ``list`` command — empty store, all notes with IDs, [enc] marker,
+       mixed plain+encrypted, alias after update  [BL B-74]
+  §9  CLI ``update`` command — plain title/content/both, no-fields error,
+       null-byte rejection (title + content), encrypted title-only (no passphrase),
+       encrypted content re-encryption (correct passphrase), encrypted wrong passphrase
+  §10 CLI ``delete`` command — plain note, not-found, no-other-notes-affected,
+       encrypted correct passphrase, encrypted wrong passphrase
   §11 CLI non-zero exit codes on every error path  [BL B-23]
   §12 CLI passphrase confirmation on encrypt  [BL B-32]
   §13 Alembic baseline migration  [BL B-65]
@@ -298,6 +306,19 @@ def test_discover_plugins_skips_dunder_files(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
+def test_discover_plugins_skips_file_when_spec_is_none(tmp_path: Path) -> None:
+    """discover_plugins skips files for which spec_from_file_location returns None."""
+    (tmp_path / "no_spec.py").write_text("pass")
+    registry = PluginRegistry()
+    with patch(
+        "src.core.plugin_base.importlib.util.spec_from_file_location",
+        return_value=None,
+    ):
+        result = discover_plugins(tmp_path, registry)
+    assert result == []
+
+
+@pytest.mark.unit
 def test_discover_plugins_broken_import_skipped(tmp_path: Path) -> None:
     """A plugin file with a syntax / import error is skipped; others load."""
     (tmp_path / "broken.py").write_text("this is not valid python !!!")
@@ -353,6 +374,15 @@ def test_discover_plugins_multiple_classes_in_one_file(tmp_path: Path) -> None:
     result = discover_plugins(tmp_path, registry)
     names = {p.name for p in result}
     assert names == {"alpha", "beta"}
+
+
+@pytest.mark.unit
+def test_discover_plugins_no_subclasses_in_file_returns_empty(tmp_path: Path) -> None:
+    """A valid Python file with no PluginBase subclasses contributes nothing.  [BL B-37]"""
+    (tmp_path / "no_plugins.py").write_text("x = 42\n")
+    registry = PluginRegistry()
+    result = discover_plugins(tmp_path, registry)
+    assert result == []
 
 
 # ===========================================================================
@@ -453,6 +483,20 @@ def test_data_dir_env_var_respected(tmp_path: Path) -> None:
     assert result.exit_code == 0
 
 
+@pytest.mark.cli
+def test_cli_data_dir_not_writable_exits_nonzero(tmp_path: Path) -> None:
+    """--data-dir with no write permission exits 2.  [BL B-39]"""
+    probe_dir = tmp_path / "ro_dir"
+    probe_dir.mkdir()
+    runner = CliRunner()
+    # Patch Path.touch to simulate a non-writable directory without relying on
+    # OS-level chmod (which is unreliable on Windows).
+    with patch("pathlib.Path.touch", side_effect=PermissionError("Access is denied")):
+        result = runner.invoke(cli, ["--data-dir", str(probe_dir), "list"])
+    assert result.exit_code == 2
+    assert "not writable" in result.output.lower()
+
+
 # ===========================================================================
 # §6  CLI ``add`` command  [BL B-19, B-23, B-52]
 # ===========================================================================
@@ -540,6 +584,37 @@ def test_cli_add_content_allows_newline(tmp_path: Path) -> None:
         cli, args + ["add", "--title", "Multi", "--content", "line1\nline2"]
     )
     assert result.exit_code == 0
+
+
+@pytest.mark.cli
+def test_cli_add_empty_content_exits_nonzero(tmp_path: Path) -> None:
+    """``add`` with no --content (empty stdin) exits 1.  [REQ R1.6]"""
+    runner, args = _runner(tmp_path)
+    result = runner.invoke(cli, args + ["add", "--title", "T"], input="")
+    assert result.exit_code == 1
+
+
+@pytest.mark.cli
+def test_cli_add_whitespace_content_exits_nonzero(tmp_path: Path) -> None:
+    """``add`` with whitespace-only content exits 1.  [REQ R1.6]"""
+    runner, args = _runner(tmp_path)
+    result = runner.invoke(cli, args + ["add", "--title", "T", "--content", "   "])
+    assert result.exit_code == 1
+
+
+@pytest.mark.cli
+def test_cli_add_encrypt_stores_placeholder_alias(tmp_path: Path) -> None:
+    """``add --encrypt`` stores '[Encrypted Note]' as the list alias, not the real title.  [REQ R2.7]"""
+    runner, args = _runner(tmp_path)
+    result = runner.invoke(
+        cli, args + ["add", "--title", "My Real Title", "--content", "secret", "--encrypt"],
+        input="StrongPass1\nStrongPass1\n",
+    )
+    assert result.exit_code == 0
+    list_result = runner.invoke(cli, args + ["list"])
+    assert "My Real Title" not in list_result.output
+    assert "[Encrypted Note]" in list_result.output
+    assert "[enc]" in list_result.output
 
 
 # ===========================================================================
@@ -657,6 +732,52 @@ def test_cli_list_marks_encrypted_notes(tmp_path: Path) -> None:
     assert "[enc]" in result.output
 
 
+@pytest.mark.cli
+def test_cli_list_shows_note_id(tmp_path: Path) -> None:
+    """``list`` output contains the note ID on the same line as the title."""
+    runner, args = _runner(tmp_path)
+    add_r = runner.invoke(cli, args + ["add", "--title", "IDCheck", "--content", "body"])
+    note_id = add_r.output.strip()
+    result = runner.invoke(cli, args + ["list"])
+    assert result.exit_code == 0
+    assert note_id in result.output
+
+
+@pytest.mark.cli
+def test_cli_list_mixed_plain_and_encrypted(tmp_path: Path) -> None:
+    """``list`` shows plain notes without [enc] and encrypted notes with [enc]."""
+    runner, args = _runner(tmp_path)
+    runner.invoke(cli, args + ["add", "--title", "PlainNote", "--content", "visible"])
+    runner.invoke(
+        cli, args + ["add", "--title", "SecNote", "--content", "secret", "--encrypt"],
+        input="StrongPass1\nStrongPass1\n",
+    )
+    result = runner.invoke(cli, args + ["list"])
+    assert result.exit_code == 0
+    assert "PlainNote" in result.output
+    assert "[Encrypted Note]" in result.output
+    assert "[enc]" in result.output
+    for line in result.output.splitlines():
+        if "PlainNote" in line:
+            assert "[enc]" not in line
+
+
+@pytest.mark.cli
+def test_cli_list_shows_encrypted_alias_after_update(tmp_path: Path) -> None:
+    """After updating an encrypted note's alias, ``list`` shows the new alias with [enc].  [REQ R2.4]"""
+    runner, args = _runner(tmp_path)
+    add_r = runner.invoke(
+        cli, args + ["add", "--title", "HiddenTitle", "--content", "secret", "--encrypt"],
+        input="StrongPass1\nStrongPass1\n",
+    )
+    note_id = add_r.output.strip().splitlines()[-1].strip()
+    runner.invoke(cli, args + ["update", note_id, "--title", "PublicAlias"])
+    result = runner.invoke(cli, args + ["list"])
+    assert result.exit_code == 0
+    assert "PublicAlias" in result.output
+    assert "[enc]" in result.output
+
+
 # ===========================================================================
 # §9  CLI ``update`` command
 # ===========================================================================
@@ -692,6 +813,23 @@ def test_cli_update_content(tmp_path: Path) -> None:
 
 
 @pytest.mark.cli
+def test_cli_update_title_and_content_together(tmp_path: Path) -> None:
+    """``update`` with both --title and --content changes both fields atomically."""
+    runner, args = _runner(tmp_path)
+    add_r = runner.invoke(cli, args + ["add", "--title", "OldTitle", "--content", "old body"])
+    note_id = add_r.output.strip()
+    result = runner.invoke(
+        cli, args + ["update", note_id, "--title", "NewTitle", "--content", "new body"]
+    )
+    assert result.exit_code == 0
+    store = DatabaseStore(tmp_path)
+    fetched = store.get(note_id)
+    assert fetched is not None
+    assert fetched.title == "NewTitle"
+    assert fetched.content == "new body"
+
+
+@pytest.mark.cli
 def test_cli_update_nonexistent_note_exits_nonzero(tmp_path: Path) -> None:
     """``update`` with an unknown ID exits 1.  [BL B-23]"""
     runner, args = _runner(tmp_path)
@@ -718,6 +856,77 @@ def test_cli_update_null_byte_in_title_exits_nonzero(tmp_path: Path) -> None:
     note_id = add_r.output.strip()
     result = runner.invoke(cli, args + ["update", note_id, "--title", "bad\x00title"])
     assert result.exit_code == 1
+
+
+@pytest.mark.cli
+def test_cli_update_null_byte_in_content_exits_nonzero(tmp_path: Path) -> None:
+    """Null byte in updated content is rejected at CLI boundary.  [BL B-52]"""
+    runner, args = _runner(tmp_path)
+    add_r = runner.invoke(cli, args + ["add", "--title", "T", "--content", "C"])
+    note_id = add_r.output.strip()
+    result = runner.invoke(cli, args + ["update", note_id, "--content", "bad\x00content"])
+    assert result.exit_code == 1
+
+
+@pytest.mark.cli
+def test_cli_update_encrypted_note_title_only_no_passphrase(tmp_path: Path) -> None:
+    """Updating the title alias of an encrypted note requires no passphrase.  [REQ R2.4]"""
+    runner, args = _runner(tmp_path)
+    add_r = runner.invoke(
+        cli, args + ["add", "--title", "SecNote", "--content", "secret", "--encrypt"],
+        input="StrongPass1\nStrongPass1\n",
+    )
+    assert add_r.exit_code == 0
+    note_id = add_r.output.strip().splitlines()[-1].strip()
+    result = runner.invoke(cli, args + ["update", note_id, "--title", "NewAlias"])
+    assert result.exit_code == 0
+    assert "Updated" in result.output
+    store = DatabaseStore(tmp_path)
+    fetched = store.get(note_id)
+    assert fetched is not None
+    assert fetched.title == "NewAlias"
+
+
+@pytest.mark.cli
+def test_cli_update_encrypted_note_content_with_correct_passphrase(tmp_path: Path) -> None:
+    """Updating content of encrypted note re-encrypts with correct passphrase.  [REQ R2.4]"""
+    runner, args = _runner(tmp_path)
+    add_r = runner.invoke(
+        cli, args + ["add", "--title", "Enc", "--content", "old secret", "--encrypt"],
+        input="StrongPass1\nStrongPass1\n",
+    )
+    assert add_r.exit_code == 0
+    note_id = add_r.output.strip().splitlines()[-1].strip()
+    upd_r = runner.invoke(
+        cli, args + ["update", note_id, "--content", "new secret"],
+        input="StrongPass1\n",
+    )
+    assert upd_r.exit_code == 0, f"update failed: {upd_r.output!r}"
+    # Verify the new content is readable with the same passphrase.
+    get_r = runner.invoke(
+        cli, args + ["get", "--decrypt", note_id],
+        input="StrongPass1\n",
+    )
+    assert get_r.exit_code == 0
+    assert "new secret" in get_r.output
+
+
+@pytest.mark.cli
+def test_cli_update_encrypted_note_content_wrong_passphrase_exits_nonzero(tmp_path: Path) -> None:
+    """Wrong passphrase when updating encrypted note content exits 1.  [REQ R2.4]"""
+    runner, args = _runner(tmp_path)
+    add_r = runner.invoke(
+        cli, args + ["add", "--title", "Enc", "--content", "secret", "--encrypt"],
+        input="StrongPass1\nStrongPass1\n",
+    )
+    assert add_r.exit_code == 0
+    note_id = add_r.output.strip().splitlines()[-1].strip()
+    result = runner.invoke(
+        cli, args + ["update", note_id, "--content", "new secret"],
+        input="WrongPass1\n",
+    )
+    assert result.exit_code == 1
+    assert "wrong passphrase" in result.output.lower()
 
 
 # ===========================================================================
@@ -759,6 +968,41 @@ def test_cli_delete_does_not_affect_other_notes(tmp_path: Path) -> None:
     store = DatabaseStore(tmp_path)
     assert store.get(keep_id) is not None
     assert store.get(remove_id) is None
+
+
+@pytest.mark.cli
+def test_cli_delete_encrypted_note_with_correct_passphrase(tmp_path: Path) -> None:
+    """``delete`` on encrypted note succeeds with correct passphrase.  [REQ R2.5]"""
+    runner, args = _runner(tmp_path)
+    add_r = runner.invoke(
+        cli, args + ["add", "--title", "SecToDel", "--content", "secret", "--encrypt"],
+        input="StrongPass1\nStrongPass1\n",
+    )
+    assert add_r.exit_code == 0
+    note_id = add_r.output.strip().splitlines()[-1].strip()
+    result = runner.invoke(cli, args + ["delete", note_id], input="StrongPass1\n")
+    assert result.exit_code == 0
+    assert "Deleted" in result.output
+    store = DatabaseStore(tmp_path)
+    assert store.get(note_id) is None
+
+
+@pytest.mark.cli
+def test_cli_delete_encrypted_note_wrong_passphrase_exits_nonzero(tmp_path: Path) -> None:
+    """Wrong passphrase on encrypted note delete exits 1; note is preserved.  [REQ R2.5]"""
+    runner, args = _runner(tmp_path)
+    add_r = runner.invoke(
+        cli, args + ["add", "--title", "SecToDel", "--content", "secret", "--encrypt"],
+        input="StrongPass1\nStrongPass1\n",
+    )
+    assert add_r.exit_code == 0
+    note_id = add_r.output.strip().splitlines()[-1].strip()
+    result = runner.invoke(cli, args + ["delete", note_id], input="WrongPass1\n")
+    assert result.exit_code == 1
+    assert "wrong passphrase" in result.output.lower()
+    # Note must still exist — wrong passphrase must not delete it.
+    store = DatabaseStore(tmp_path)
+    assert store.get(note_id) is not None
 
 
 # ===========================================================================

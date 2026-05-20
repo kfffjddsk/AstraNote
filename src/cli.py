@@ -315,9 +315,44 @@ def update_cmd(
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
 
+    # Fetch note first to determine whether it is encrypted.  [REQ R2.4]
     try:
-        note = store.update(note_id, title=title, content=content)
-        click.echo(f"Updated: {note.id}")
+        note = store.get(note_id)
+    except PermissionError as exc:
+        click.echo(f"Error: permission denied — {exc}", err=True)
+        sys.exit(1)
+    except OSError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    if note is None:
+        click.echo(f"Error: note {note_id!r} not found.", err=True)
+        sys.exit(1)
+
+    blob: Optional[bytes] = None
+    store_content: Optional[str] = content
+
+    if note.encrypted and content is not None:
+        # Re-encrypt with new content; passphrase required.  [REQ R2.4]
+        passphrase = click.prompt("Passphrase", hide_input=True)
+        try:
+            engine = KeyManager(passphrase).get_engine()
+            BlobCodec.decrypt(note.blob, engine)  # verify passphrase
+            stored_title = title if title is not None else note.title
+            header = {"title": stored_title, "format": "text/plain"}
+            raw_blob = BlobCodec.encode(header, content.encode("utf-8"))
+            blob = BlobCodec.encrypt(raw_blob, engine)
+        except InvalidTag:
+            click.echo("Error: wrong passphrase or corrupted data.", err=True)
+            sys.exit(1)
+        except ValueError as exc:
+            click.echo(f"Error: {exc}", err=True)
+            sys.exit(1)
+        store_content = None  # content is inside the new blob
+
+    try:
+        updated = store.update(note_id, title=title, content=store_content, blob=blob)
+        click.echo(f"Updated: {updated.id}")
     except KeyError:
         click.echo(f"Error: note {note_id!r} not found.", err=True)
         sys.exit(1)
@@ -343,6 +378,32 @@ def update_cmd(
 def delete_cmd(ctx: click.Context, note_id: str) -> None:
     """Delete a note by ID."""
     store: DatabaseStore = ctx.obj["store"]
+
+    # Fetch first to check encryption status before prompting.  [REQ R2.5]
+    try:
+        note = store.get(note_id)
+    except PermissionError as exc:
+        click.echo(f"Error: permission denied — {exc}", err=True)
+        sys.exit(1)
+    except OSError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    if note is None:
+        click.echo(f"Error: note {note_id!r} not found.", err=True)
+        sys.exit(1)
+
+    if note.encrypted:
+        passphrase = click.prompt("Passphrase", hide_input=True)
+        try:
+            engine = KeyManager(passphrase).get_engine()
+            BlobCodec.decrypt(note.blob, engine)
+        except InvalidTag:
+            click.echo("Error: wrong passphrase or corrupted data.", err=True)
+            sys.exit(1)
+        except ValueError as exc:
+            click.echo(f"Error: {exc}", err=True)
+            sys.exit(1)
 
     try:
         store.delete(note_id)
