@@ -73,7 +73,6 @@ Fix critical bugs, harden edge cases, integrate plugin system.
 - B-32: Passphrase confirmation prompt on encrypt
 - ~~B-33~~: Fix unencrypted update/delete corrupting encrypted notes — **Done in Sprint 0** (co-existence invariant implemented + tested)
 - ~~B-34~~: Reject empty/short passphrase (min 8 chars) — **Done in Sprint 0** (`KeyManager` validates ≥ 8 chars)
-- ~~B-35: Corrupt JSON recovery with `.bak` backup~~ — **DROPPED** (SQLite ACID; no `.bak` fallback needed) `[D-10]`
 - B-36: `--data-dir` validation (must be directory, writable)
 - B-37: Plugin discovery and loading from `plugins/`
 - ~~B-38~~: Plugin error isolation (try/except in hook dispatch) — **Done in Sprint 0** (`PluginRegistry.call_hook()` catches per-handler)
@@ -84,18 +83,19 @@ Fix critical bugs, harden edge cases, integrate plugin system.
 - B-66: SQLite WAL mode + retry logic for concurrent access `[D-10]`
 - B-83: Unit tests for PluginBase and PluginRegistry *(closes test debt from B-18)*
 
-## Exit Criteria
-- No ID collision after any deletion sequence
-- Passphrase confirmed on encrypt; empty/short rejected
-- Unencrypted operations don't corrupt encrypted notes
+## Exit Criteria ✅ All Met — Sprint 1 complete (May 2026)
+
+- ✅ No ID collision after any deletion sequence
+- ✅ Passphrase confirmed on encrypt; empty/short rejected
+- ✅ Unencrypted operations don't corrupt encrypted notes
 - ~~Corrupt JSON → backup + empty store + warning~~ (dropped — SQLite ACID; no JSON layer) `[D-10]`
-- Plugins load from `plugins/`, hook errors isolated
-- `--data-dir` validated; permission errors caught
-- Null bytes and control characters rejected at all CLI input boundaries
-- All new edge cases covered by BDD or unit tests
-- Alembic configured; `notes.db` schema versioned from Sprint 0 `create_all()` baseline
-- SQLite WAL mode enabled; `OperationalError: database is locked` retried with backoff. Note: concurrent CLI + GUI session writes are prevented at the application layer by session exclusivity (B-101, Sprint 4) — WAL mode provides read-concurrency performance and belt-and-suspenders resilience.
-- All existing 46 tests still pass (47 including stress)
+- ✅ Plugins load from `plugins/`, hook errors isolated
+- ✅ `--data-dir` validated; permission errors caught
+- ✅ Null bytes and control characters rejected at all CLI input boundaries
+- ✅ All new edge cases covered by BDD or unit tests
+- ✅ Alembic configured; `notes.db` schema versioned from Sprint 0 `create_all()` baseline
+- ✅ SQLite WAL mode enabled; `OperationalError: database is locked` retried with backoff. Note: concurrent CLI + GUI session writes are prevented at the application layer by session exclusivity (B-101, Sprint 4) — WAL mode provides read-concurrency performance and belt-and-suspenders resilience.
+- ✅ 140 tests pass (141 including stress); 99% branch coverage on core modules
 
 ---
 
@@ -125,7 +125,7 @@ Introduce SQLite local store with optional account layer, database backend with 
 - B-81: On `delete-account`: set `account_id = NULL` on local notes; delete server record `[LOG 05-04]`
 - B-96: `accounts` table (local SQLite): `account_id` UUID PK, `username`, `password_hash`, etc. `[LOG 05-04]`
 
-*(B-42, B-43, B-51, B-74 done in Sprint 0; B-52, B-65, B-66 done in Sprint 1; B-44, B-53, B-63 moved to Sprint 5A; B-78, B-79 moved to Sprint 3; B-48 migrate command DROPPED; B-80 DROPPED — D-10)*
+*(B-42, B-43, B-51, B-74 done in Sprint 0; B-52, B-65, B-66 done in Sprint 1; B-44, B-53, B-63 moved to Sprint 5A; B-78, B-79 moved to Sprint 3)*
 
 ## Exit Criteria
 - App starts and all CRUD operations work with no login or configuration required `[LOG 05-04]`
@@ -143,9 +143,9 @@ Introduce SQLite local store with optional account layer, database backend with 
 - `delete-account` sets `account_id = NULL` on local notes; warns cloud copies deleted `[LOG 05-04]`
 - Disk-full (`ENOSPC`) caught at DB and filesystem layers; user-facing error shown; operation aborted cleanly
 - Orphaned filesystem payloads cleaned up on note delete; no dangling files after delete
-- All existing 33 tests still pass
+- All existing 140 tests still pass
 
-*(SQLite always-on, BlobCodec, SQLAlchemy ORM, title/format columns done in Sprint 0; B-52, Alembic + WAL mode done in Sprint 1; B-44, B-53, B-63 PostgreSQL infra moved to Sprint 5A; B-78, B-79 moved to Sprint 3; migrate command DROPPED — D-10)*
+*(SQLite always-on, BlobCodec, SQLAlchemy ORM, title/format columns done in Sprint 0; B-52, Alembic + WAL mode done in Sprint 1; B-44, B-53, B-63 PostgreSQL infra moved to Sprint 5A; B-78, B-79 moved to Sprint 3)*
 
 ---
 
@@ -169,8 +169,7 @@ Complete plugin system hardening, add override policy and audit trail, wire plug
 - B-56: Plugin sandboxing — read-only note copies, no exec/eval, no raw DB access (US-4, US-13)
 - B-62: Passphrase rotation via `reencrypt <note_id>` (US-2)
 - B-69: Plugin allowlist in config — reject unlisted plugins (US-4)
-- B-70: ~~Config tampering guard — deployment_mode switch requires CONFIRM (US-10)~~ — **REMOVED** (no mode-switching concept) `[LOG 05-04]`
-- B-71: Expand audit trail scope — login/logout/register/delete-account/~~migrate/~~export (US-6) `[migrate dropped — D-10]`
+- B-71: Expand audit trail scope — login/logout/register/delete-account/export (US-6)
 - B-73: Document passphrase memory-residency limitation (US-2)
 - B-76: Export binary notes — write raw payload file + path reference in manifest (US-8)
 - B-78: Export file permissions + `export --cleanup` command (US-8)

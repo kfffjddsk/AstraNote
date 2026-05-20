@@ -79,11 +79,8 @@ Existing tools either expose note content to third-party services, provide no pe
 ### 3.3 Storage and Persistence
 
 > Source: `[REQ R3]` `[REQ R14]` `[US-3]` `[US-12]` `[BL B-15–B-16, B-42–B-43, B-48–B-49, B-51, B-63–B-68, B-74]` `[LOG 04-15]`
->
-> **Note (D-10, 2026-05-12):** The pre-migration/post-migration distinction below is retired. `DatabaseStore` (SQLite) used from Sprint 0; no JSON storage phase ever shipped; `migrate` command (B-48) dropped. Items marked ~~struck~~ are superseded by the lines below them.
 
-- ~~**Pre-migration:** JSON file (`notes.json`), save after every mutation. `[REQ R3.1]` `[REQ R3.2]`~~ — **RETIRED** `[D-10]`
-- ~~**Post-migration:** SQLite via `migrate` CLI command.~~ **SQLite (`notes.db`) from Sprint 0 — always active.** `[REQ R14.1]` `[D-10]`
+- **SQLite (`notes.db`) from Sprint 0 — always active.** `[REQ R14.1]` `[D-10]`
 - Sandbox blob stored inline for payloads ≤ 5 MB; payloads > 5 MB stored as AES-256-GCM encrypted files on disk (encrypted notes only); unencrypted notes always stored inline regardless of size. `[REQ R14.8]` `[BL B-49]`
 - SQLAlchemy ORM with parameterized queries; no raw SQL in application code. `[REQ R15.1]` `[REQ R15.2]` `[BL B-51]`
 - ACID transactions on every mutation; concurrent writes must not corrupt data. `[REQ R14.6]`

@@ -20,7 +20,6 @@ Items ordered by priority. Status reflects current state.
 | B-12 | Delete encrypted note with passphrase | US-2 | High | ✅ Done |
 | B-13 | Reject wrong passphrase on delete | US-2 | High | ✅ Done |
 | B-14 | Error handling for missing note IDs | US-1 | High | ✅ Done |
-| ~~B-15~~ | ~~JSON persistence with save-on-mutate~~ — **replaced by B-42, B-43, B-51, B-74** (SQLite from Sprint 0 — D-10) | US-3 | High | Dropped |
 | B-16 | Preserve encrypted records on no-key load | US-3 | High | ✅ Done |
 | B-17 | AES-256-GCM encryption with PBKDF2 | US-2 | High | ✅ Done |
 | B-18 | Plugin base class and registry | US-4 | High | ✅ Done |
@@ -38,24 +37,23 @@ Items ordered by priority. Status reflects current state.
 
 ---
 
-## Sprint 1 — Not Started
+## Sprint 1 — Done ✅
 
-> **Goal:** Wire Click CLI, fix remaining edge cases, and harden plugin integration. Items B-19 and B-23 were Sprint 0 scope, deferred because CLI was not implemented in Sprint 0.
+> **Goal:** Wire Click CLI, fix remaining edge cases, and harden plugin integration. Items B-19 and B-23 were Sprint 0 scope, deferred because CLI was not implemented in Sprint 0. Completed May 2026 — 140 tests, 99% branch coverage on core modules.
 
-| ID | Item | User Story | Priority |
-|----|------|------------|----------|
-| B-19 | `--data-dir` global option *(deferred from Sprint 0)* | US-1 | High |
-| B-23 | Non-zero exit codes on CLI errors *(deferred from Sprint 0)* | US-1 | High |
-| B-32 | Passphrase confirmation prompt on encrypt | US-2 | High |
-| ~~B-35~~ | ~~Corrupt JSON recovery with `.bak` backup~~ — **DROPPED** (SQLite ACID; no `.bak` fallback) `[D-10]` | US-1, US-3 | — |
-| B-36 | `--data-dir` validation (must be directory, writable) | US-1 | Medium |
-| B-37 | Plugin discovery and loading from `plugins/` | US-4 | Medium |
-| B-39 | File permission error handling with friendly messages | US-3 | Medium |
-| B-40 | BDD + unit tests for new edge cases (B-32, B-36, B-37, B-39, B-52 scenarios) | US-1–US-4 | Medium |
-| B-52 | Input validation: reject null bytes and control characters at CLI boundary | US-1, US-11, US-13 | High |
-| B-65 | Alembic schema versioning for database migrations `[D-10]` | US-12 | Medium |
-| B-66 | SQLite WAL mode + retry logic for concurrent access `[D-10]` | US-12 | Medium |
-| B-83 | Unit tests for PluginBase and PluginRegistry (closes test debt from B-18) | US-4 | High |
+| ID | Item | User Story | Priority | Status |
+|----|------|------------|----------|--------|
+| B-19 | `--data-dir` global option *(deferred from Sprint 0)* | US-1 | High | ✅ Done |
+| B-23 | Non-zero exit codes on CLI errors *(deferred from Sprint 0)* | US-1 | High | ✅ Done |
+| B-32 | Passphrase confirmation prompt on encrypt | US-2 | High | ✅ Done |
+| B-36 | `--data-dir` validation (must be directory, writable) | US-1 | Medium | ✅ Done |
+| B-37 | Plugin discovery and loading from `plugins/` | US-4 | Medium | ✅ Done |
+| B-39 | File permission error handling with friendly messages | US-3 | Medium | ✅ Done |
+| B-40 | BDD + unit tests for new edge cases (B-32, B-36, B-37, B-39, B-52 scenarios) | US-1–US-4 | Medium | ✅ Done |
+| B-52 | Input validation: reject null bytes and control characters at CLI boundary | US-1, US-11, US-13 | High | ✅ Done |
+| B-65 | Alembic schema versioning for database migrations `[D-10]` | US-12 | Medium | ✅ Done |
+| B-66 | SQLite WAL mode + retry logic for concurrent access `[D-10]` | US-12 | Medium | ✅ Done |
+| B-83 | Unit tests for PluginBase and PluginRegistry (closes test debt from B-18) | US-4 | High | ✅ Done |
 
 ---
 
@@ -69,9 +67,7 @@ Items ordered by priority. Status reflects current state.
 | B-45 | User registration and bcrypt password hashing | US-11 | Medium |
 | B-46 | Login/logout session management | US-11 | Medium |
 | B-47 | User isolation — scope queries by `account_id` `[LOG 05-04]` | US-11 | Medium |
-| ~~B-48~~ | ~~`migrate` CLI command: JSON → database migration~~ — **DROPPED** (no JSON phase; SQLite from Sprint 0) `[D-10]` | US-12 | — |
 | B-49 | Hybrid storage: 5 MB threshold, encrypted-only filesystem payloads | US-12 | High |
-| ~~B-50~~ | ~~Mode switch with `CONFIRM MODE SWITCH` safety gate~~ — **REMOVED** (no mode-switching concept) `[LOG 05-04]` | — | — |
 | B-57 | Interactive auth prompts (hide_input=True) — never accept password as CLI arg | US-11 | High |
 | B-58 | Auth rate limiting — 5 failures → 5-min lockout per username | US-11 | High |
 | B-59 | Session token file with 24h expiry at `<data-dir>/.session` | US-11 | High |
@@ -104,14 +100,11 @@ Items ordered by priority. Status reflects current state.
 | B-56 | Plugin sandboxing — read-only note copies, no exec/eval, no raw DB access | US-4, US-13 | Medium |
 | B-62 | Passphrase rotation via `reencrypt <note_id>` | US-2 | Medium |
 | B-69 | Plugin allowlist in config — reject unlisted plugins | US-4 | Medium |
-| ~~B-70~~ | ~~Config tampering guard — deployment_mode switch requires CONFIRM~~ — **REMOVED** (no `deployment_mode` config) `[LOG 05-04]` | — | — |
 | B-71 | Expand audit trail scope — login/logout/register/delete-account/export | US-6 | Medium |
-| ~~B-72~~ | ~~Migration: alert user, prompt passphrase per note~~ — **DROPPED** (depends on B-48; no migration) `[D-10]` | US-12 | — |
 | B-73 | Document passphrase memory-residency limitation | US-2 | Low |
 | B-76 | Export binary notes: write raw payload file + path reference in manifest | US-8 | Medium |
 | B-78 | Export file permissions + `export --cleanup` command | US-8 | High |
 | B-79 | Alias info warning for encrypted notes | US-2 | Medium |
-| ~~B-80~~ | ~~Migration backup auto-delete after verification~~ — **DROPPED** (depends on B-48) `[D-10]` | US-12 | — |
 
 ---
 

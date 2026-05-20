@@ -15,7 +15,6 @@ Create, read, list, update, and delete notes via CLI.
 | R1.7 | Return clear error for non-existent note IDs |
 | R1.8 | Generate gap-safe unique IDs (UUID or max-ID+1); no collision after deletions |
 | R1.9 | `--data-dir` must be a writable directory; existing file at path → error; no permission → error with message |
-| ~~R1.10~~ | ~~Corrupt `notes.json` → back up as `notes.json.bak`, start empty, warn user~~ — **N/A** (SQLite ACID transactions replace JSON corruption recovery; no JSON storage layer) `[D-10]` |
 
 ## R2: Encryption
 
@@ -42,16 +41,14 @@ Per-note opt-in encryption using AES-256-GCM with PBKDF2 key derivation.
 
 ## R3: Data Persistence
 
-**SUPERSEDED by R14 (SQLite, Sprint 0).** `[D-10 resolved 2026-05-12]` SQLite (`DatabaseStore`) is used from Sprint 0; there is no JSON storage phase. R3.1 and R3.6 are retired. R3.2–R3.5, R3.7–R3.8 remain applicable to `DatabaseStore` and are covered by R14.1–R14.13.
+R3.2–R3.5 and R3.7–R3.8 apply to `DatabaseStore` (SQLite, Sprint 0). Full storage requirements in R14. `[D-10]`
 
 | ID | Requirement |
 |----|-------------|
-| ~~R3.1~~ | ~~Store notes in `<data-dir>/notes.json` (pre-migration only; replaced by database after migration)~~ — **RETIRED** (SQLite `notes.db` from Sprint 0 — R14.1) |
 | R3.2 | Save after every mutation (add, update, delete) |
 | R3.3 | Load existing notes on startup |
 | R3.4 | Preserve encrypted records when loaded without a key |
 | R3.5 | Handle listing, searching, fetching, deleting 1000+ notes within 0.5 seconds on reference hardware (documented test environment) without crashes or exceptions |
-| ~~R3.6~~ | ~~Corrupt JSON detected on load → back up as `.bak`, start empty, warn user~~ — **RETIRED** (SQLite ACID transactions replace JSON corruption recovery) `[D-10]` |
 | R3.7 | File write errors → catch and display actionable message (e.g., "Cannot write to <path>: permission denied") |
 | R3.8 | Disk-full errors (`ENOSPC` / `OSError`) caught and reported as actionable error; no silent data loss |
 
@@ -229,7 +226,6 @@ Relational storage with sandbox binary model for note data.
 | R14.4 | Sandbox binary storage: blob uses length-prefixed framing; header (JSON) + payload (raw bytes). Encrypted notes: entire blob is AES-256-GCM ciphertext. Unencrypted notes: plaintext header + raw payload |
 | R14.5 | No sensitive metadata (content, timestamps, tags, original_filename) stored outside the blob. `title` column stores a user-chosen alias for encrypted notes (defaults to `[Encrypted Note]` if omitted; authoritative title remains inside the blob). `format` duplicated as plaintext column for fast listing; authoritative copy remains inside the blob |
 | R14.6 | ACID transactions on every mutation; concurrent writes must not corrupt data |
-| ~~R14.7~~ | ~~`migrate` CLI command converts `notes.json` → database; backs up JSON before migration. Alert user that encrypted notes require passphrase entry for conversion to sandbox blob format. If user confirms, prompt passphrase per encrypted note; mismatched passphrase → skip that note with warning. Skipped notes remain in JSON backup. After all notes migrated successfully, prompt to securely delete backup; auto-deleted if confirmed. If any notes skipped, warn that backup must be kept~~ — **DROPPED** (no JSON storage phase; SQLite from Sprint 0) `[D-10 resolved 2026-05-12]` |
 | R14.8 | Size threshold: payloads ≤ 5 MB stored inline in `encrypted_blob` column. Payloads > 5 MB: only encrypted notes may use filesystem storage under per-user directory at `files/<note_id>.<ext>` (server: `<data-dir>/users/<hashed_uid>/files/`; personal: `<data-dir>/files/`). AES-256-GCM encrypted before writing to disk; DB stores path reference in blob header. Unencrypted notes always stored inline regardless of size (no plaintext files on disk). Orphan cleanup on note delete |
 | R14.9 | Retrieval: decrypt blob → parse header. `text/*` format → display as plaintext. Binary format → write payload to per-user exports directory (`exports/<original_filename>`) with restricted permissions; display path and cleanup warning |
 | R14.10 | `accounts` table (local, created on first `register` or `login`): `account_id` (PK, UUID), `username` (unique, case-insensitive), `password_hash`, `created_at`, `failed_attempts` (int, default 0), `locked_until` (nullable timestamp). This table exists in the local SQLite DB; a mirror exists on the sync server |

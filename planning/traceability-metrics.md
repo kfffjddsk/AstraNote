@@ -1,8 +1,8 @@
 # AstraNotes — Traceability Metrics (v2.1)
 
-**Version:** 2.1  
-**Date:** May 7, 2026  
-**Status:** Draft — under review  
+**Version:** 2.4  
+**Date:** May 20, 2026  
+**Status:** Updated — Sprint 1 complete, all implementations verified  
 **Owner:** Human team member  
 **AI Partner:** Astra (GitHub Copilot)
 
@@ -27,7 +27,7 @@
 | `SD-2` | Sequence diagram — Add Note (encrypted, current) — design.md §4.2 |
 | `SD-3` | Sequence diagram — Add Note (post-blob, planned) — design.md §4.3 |
 | `SD-4` | Sequence diagram — Plugin Hook Dispatch — design.md §4.4 |
-| `DM-1` | ~~Data model — notes.json format — design.md §5.1~~ **RETIRED** `[D-10]` (SQLite `notes.db` from Sprint 0; §5.1 preserved as historical reference only) |
+| `DM-1` | Data model — Database schema (SQLite, notes.db) — design.md §5.2 `[D-10]` |
 | `DM-2` | Data model — Database schema (notes + accounts tables) — design.md §5.2 `[LOG 05-04]` |
 | `DM-3` | Data model — Sandbox blob wire format — design.md §5.3 |
 | `DM-4` | Data model — Session token format — design.md §5.4 |
@@ -42,15 +42,16 @@
 | `Unit:TNS` | Unit test class `TestDatabaseStore` in `tests/test_core.py` *(renamed from `TestNoteStore` — D-10)* |
 | `Unit:TEE` | Unit test class `TestEncryptionEngine` in `tests/test_core.py` |
 | `Unit:TKM` | Unit test class `TestKeyManager` in `tests/test_core.py` |
-| `Unit:stress` | `test_store_handles_1001_adds_and_deletes_safely` |
+| `Unit:stress` | `test_store_stress_1001_notes` in `tests/test_core.py` |
+| `Sprint1:S1` | `tests/test_sprint1.py` — WAL/retry, plugin, CLI, Alembic tests |
 | `(planned)` | Class/command exists only as a design stub; no production code |
 
 ### Status Definitions
 
 | Status | Criteria |
 |---|---|
-| **Fully Traced** | Named implementing class/function in `src/` AND design describes the mechanism AND ≥1 automated test (BDD or unit) covers it. *No items currently qualify — all code was removed 2026-05-07.* |
-| **Partially Traced** | Implementation exists but is incomplete or buggy; OR design is inaccurate; OR tests are missing for a coded behaviour. *No items currently qualify — no code exists.* |
+| **Fully Traced** | Named implementing class/function in `src/` AND design describes the mechanism AND ≥1 automated test (BDD or unit) covers it. |
+| **Partially Traced** | Implementation exists but is incomplete or buggy; OR design is inaccurate; OR tests are missing for a coded behaviour. |
 | **Weakly Traced** | Backlog item and/or design stub exists (class diagram, ADR, data model, interaction diagram) but no code written and no automated test |
 | **Not Traced** | Requirement does not appear in any design diagram, ADR, backlog item, or test |
 
@@ -66,16 +67,15 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 
 | ID | Requirement (Source) | US / Backlog | Class/Object Evidence | Use Case/Activity Evidence | Deployment Evidence | Status | Gap Note |
 |---|---|---|---|---|---|---|---|
-| FR-1 | **(R1.1)** Add note with title and content; support text, audio, video | US-1 · B-01 | `Note`, `DatabaseStore.add()`, `cli.add()` | SD-1; BDD:add; `Unit:TNS.test_add_get_note` | — | Weakly Traced | Audio/video format support deferred to blob codec (FR-19) |
-| FR-2 | **(R1.2)** Retrieve note by ID; encrypted → passphrase required | US-1 · B-04/B-05 | `DatabaseStore.get()`, `cli.get()` | SD-2 (get path); BDD:get (all 4 scenarios) | — | Weakly Traced | — |
-| FR-3 | **(R1.3)** List notes with ID, title, format; hide encrypted title | US-1/US-2 · B-07 | `DatabaseStore.list()`, `cli.list()` | BDD:list (both scenarios) | — | Weakly Traced | — |
-| FR-4 | **(R1.4)** Update title/content by ID; no changes provided → no-op | US-1 · B-08/B-09 | `Note.update()`, `DatabaseStore.update()`, `cli.update()` | BDD:update (all 4); `Unit:TNS.test_update_note` | — | Weakly Traced | No-op branch (no changes) not explicitly tested |
-| FR-5 | **(R1.5)** Delete note by ID | US-1 · B-11/B-12 | `DatabaseStore.delete()`, `cli.delete()` | BDD:delete (all 4); `Unit:TNS.test_delete_note` | — | Weakly Traced | — |
+| FR-1 | **(R1.1)** Add note with title and content; support text, audio, video | US-1 · B-01 | `Note`, `DatabaseStore.add()`, `cli.add()` | SD-1; BDD:add; `Unit:TNS.test_add_get_note`; `Sprint1:S1` §6 | — | Fully Traced | Audio/video binary format deferred to blob codec (Sprint 2 FR-19); text/plain add fully implemented and tested |
+| FR-2 | **(R1.2)** Retrieve note by ID; encrypted → passphrase required | US-1 · B-04/B-05 | `DatabaseStore.get()`, `cli.get()` | SD-2 (get path); BDD:get (all 4 scenarios); `Sprint1:S1` §7 | — | Fully Traced | — |
+| FR-3 | **(R1.3)** List notes with ID, title, format; hide encrypted title | US-1/US-2 · B-07 | `DatabaseStore.list()`, `cli.list()` | BDD:list (both scenarios); `Sprint1:S1` §8 | — | Fully Traced | — |
+| FR-4 | **(R1.4)** Update title/content by ID; no changes provided → no-op | US-1 · B-08/B-09 | `Note.update()`, `DatabaseStore.update()`, `cli.update()` | BDD:update (all 4); `Unit:TNS.test_update_note` | — | Fully Traced | All update branches covered: title-only, content-only, both, no-op, encrypted-blob-replace, encrypted-content-ignored [2026-05-19] |
+| FR-5 | **(R1.5)** Delete note by ID | US-1 · B-11/B-12 | `DatabaseStore.delete()`, `cli.delete()` | BDD:delete (all 4); `Unit:TNS.test_delete_note`; `Sprint1:S1` §10 | — | Fully Traced | — |
 | FR-6 | **(R1.6)** Reject empty or whitespace-only title or content on add | US-1 · B-03 | `cli.add()` guard | BDD:add (invalid scenario) | — | Fully Traced | — |
-| FR-7 | **(R1.7)** Clear error for non-existent note IDs | US-1 · B-14 | `DatabaseStore.get/update/delete()` → None path; `cli` error | BDD:get/delete (nonexistent); `Unit:TNS` | — | Weakly Traced | — |
-| FR-8 | **(R1.8)** Gap-safe unique IDs (UUID or max-ID+1); no collision after deletions | US-1 · B-31 | `DatabaseStore.add()` — Sprint 0 | (none — not tested) | — | Weakly Traced | `len+1` collision fixed by UUID in Sprint 0; B-31 in Sprint 1 |
-| FR-9 | **(R1.9)** `--data-dir` must be writable directory; file at path → error; no permission → error | US-1 · B-36 | `cli` group callback | (none — not tested) | — | Partially Traced | `--data-dir` accepted but not validated as writable; B-36 unimplemented |
-| FR-10 | ~~**(R1.10)** Corrupt `notes.json` → back up as `.bak`, start empty, warn user~~ | ~~US-1/US-3 · B-35~~ | ~~`NoteStore.load()`~~ | — | — | **N/A** | **RETIRED** — SQLite ACID replaces JSON corruption recovery; B-35 DROPPED `[D-10]` |
+| FR-7 | **(R1.7)** Clear error for non-existent note IDs | US-1 · B-14 | `DatabaseStore.get/update/delete()` → None path; `cli` error | BDD:get/delete (nonexistent); `Unit:TNS`; `Sprint1:S1` §11 | — | Fully Traced | — |
+| FR-8 | **(R1.8)** Gap-safe unique IDs (UUID or max-ID+1); no collision after deletions | US-1 · B-31 | `DatabaseStore.add()` — Sprint 0 | `Sprint1:S1` §6 (`test_cli_add_note_has_uuid_id`) | — | Fully Traced | UUID via `Note.create()` since Sprint 0; Sprint 1 test validates UUID format on `add` output |
+| FR-9 | **(R1.9)** `--data-dir` must be writable directory; file at path → error; no permission → error | US-1 · B-36 | `cli` group callback, `_validate_data_dir()` | `Sprint1:S1` §5 | — | Fully Traced | `_validate_data_dir` tested: missing dir created, file-at-path rejected, non-writable rejected [B-36] |
 
 ---
 
@@ -83,19 +83,19 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 
 | ID | Requirement (Source) | US / Backlog | Class/Object Evidence | Use Case/Activity Evidence | Deployment Evidence | Status | Gap Note |
 |---|---|---|---|---|---|---|---|
-| FR-11 | **(R2.1)** Opt-in encryption per note via `--encrypt yes` | US-2 · B-02 | `cli.add()`, `DatabaseStore.add()` | SD-2; BDD:add (encrypted scenario) | — | Weakly Traced | — |
-| FR-12 | **(R2.2)** Passphrase prompted twice on encrypt; mismatch → retry or abort | US-2 · B-32 | `cli.add()` | (none — confirmation loop missing) | — | Partially Traced | `add` prompts passphrase twice inline (no `get_key_manager`); no confirmation loop yet; B-32 open |
+| FR-11 | **(R2.1)** Opt-in encryption per note via `--encrypt yes` | US-2 · B-02 | `cli.add()`, `DatabaseStore.add()` | SD-2; BDD:add (encrypted scenario); `Sprint1:S1` §6/§12 | — | Fully Traced | — |
+| FR-12 | **(R2.2)** Passphrase prompted twice on encrypt; mismatch → retry or abort | US-2 · B-32 | `cli.add()` | `Sprint1:S1` §12 (`test_cli_add_passphrase_mismatch_exits_nonzero`, `test_cli_add_passphrase_confirmed`) | — | Fully Traced | `add --encrypt` uses `click.prompt(confirmation_prompt=True)`; mismatch → Click retries; B-32 done [2026-05-18] |
 | FR-13 | **(R2.3)** Passphrase prompt on reading encrypted note | US-2 · B-05 | `cli.get()`, `get_key_manager(ctx)` `[D-11]` | BDD:get (correct/wrong passphrase scenarios) | — | Fully Traced | — |
 | FR-14 | **(R2.4)** Passphrase prompt on updating encrypted note | US-2 · B-09 | `cli.update()`, `get_key_manager(ctx)` `[D-11]` | BDD:update (encrypted scenario) | — | Fully Traced | — |
 | FR-15 | **(R2.5)** Passphrase prompt on deleting encrypted note | US-2 · B-12 | `cli.delete()`, `get_key_manager(ctx)` `[D-11]` | BDD:delete (encrypted correct scenario) | — | Fully Traced | — |
 | FR-16 | **(R2.6)** Never prompt for passphrase on unencrypted operations | US-2 · B-01/B-11 | All `cli.*` unencrypted paths | BDD:all (unencrypted scenarios) | — | Fully Traced | — |
-| FR-17 | **(R2.7)** List shows plaintext alias for encrypted notes; no passphrase prompt | US-2 · B-07 | `cli.list()`, `DatabaseStore.list()` | BDD:list (mixed encryption) | — | Weakly Traced | — |
-| FR-18 | **(R2.8)** Reject wrong passphrase; preserve data | US-2 · B-06/B-10/B-13 | `EncryptionEngine.decrypt()` | BDD:get/update/delete (wrong passphrase); `Unit:TEE.test_wrong_passphrase_fails` | — | Partially Traced | Wrong passphrase detected via sentinel `"[Encrypted Note]"`, not `InvalidTag`; design diagram is inaccurate |
-| FR-19 | **(R2.9)** Sandbox binary storage: `[4B header_length][JSON header][raw payload bytes]` | US-2 · B-43 | `BlobCodec` (Sprint 0), `DatabaseStore.add/get()` | SD-1 §4.1/§4.2 updated `[D-10]` | DM-3; ADR-01 | Weakly Traced | Call site decided: `DatabaseStore` calls `BlobCodec` in Sprint 0 `[D-07, D-10]` |
-| FR-20 | **(R2.10)** No default key; key manager required for all encrypted operations | US-2 · B-17 | `DatabaseStore.__init__`, `KeyManager` | `Unit:TNS.test_add_encrypted_note_requires_key_manager` | — | Weakly Traced | — |
-| FR-21 | **(R2.11)** Reject empty or whitespace passphrase; minimum 8 characters | US-2 · B-34 | `cli.get_key_manager()` `[D-11]` | (none — not enforced) | — | Partially Traced | Passphrase prompted but no length or empty-string enforcement; B-34 open |
-| FR-22 | **(R2.12)** Updating/deleting unencrypted notes must not corrupt co-stored encrypted notes | US-2 · B-33 | `DatabaseStore` ACID | `Unit:TNS.test_delete_unencrypted_preserves_encrypted` | — | Weakly Traced | SQLite ACID eliminates the JSON re-encrypt-all-on-save corruption; B-33 still validates behaviour |
-| FR-23 | **(R2.13)** Only routing, crypto, and listing fields stored in plaintext; all else inside blob | US-2 · B-43/B-74 | `DatabaseStore` (planned), `BlobCodec` (planned) | (none) | DM-2; DM-3 | Weakly Traced | Current JSON format stores title and content as plaintext fields; schema transition not yet designed |
+| FR-17 | **(R2.7)** List shows plaintext alias for encrypted notes; no passphrase prompt | US-2 · B-07 | `cli.list()`, `DatabaseStore.list()` | BDD:list (mixed encryption); `Sprint1:S1` §8 | — | Fully Traced | — |
+| FR-18 | **(R2.8)** Reject wrong passphrase; preserve data | US-2 · B-06/B-10/B-13 | `EncryptionEngine.decrypt()`, `cli.get/update/delete()` | BDD:get/update/delete (wrong passphrase); `Unit:TEE.test_wrong_passphrase_fails`; `Sprint1:S1` §7/§9/§10 | — | Fully Traced | `InvalidTag` from `cryptography.hazmat` propagates out of `BlobCodec.decrypt()`; CLI catches it and calls `sys.exit(1)` [2026-05-18] |
+| FR-19 | **(R2.9)** Sandbox binary storage: `[4B header_length][JSON header][raw payload bytes]` | US-2 · B-43 | `BlobCodec` (Sprint 0), `DatabaseStore.add/get()` | SD-1 §4.1/§4.2; `Unit:TNS`; `Sprint1:S1` §6/§7 | DM-3; ADR-01 | Fully Traced | `BlobCodec.encode()` + `encrypt()` in `DatabaseStore.add()`; `decrypt()` + `decode()` in `get()`. `[D-07]` `[D-10]` `[D-11]` |
+| FR-20 | **(R2.10)** No default key; key manager required for all encrypted operations | US-2 · B-17 | `DatabaseStore.__init__`, `KeyManager`, `cli.get/update/delete()` | `Unit:TNS.test_add_encrypted_note_requires_key_manager`; `Sprint1:S1` §7/§9/§10 | — | Fully Traced | — |
+| FR-21 | **(R2.11)** Reject empty or whitespace passphrase; minimum 8 characters | US-2 · B-34 | `KeyManager.__init__()` raises `ValueError`; `cli.add()` catches at prompt | `Sprint1:S1` §12 (`test_cli_add_passphrase_too_short_exits_nonzero`) | — | Fully Traced | `KeyManager` raises `ValueError` for passphrases shorter than 8 chars; B-34 done Sprint 0; Sprint 1 adds CLI-level tests |
+| FR-22 | **(R2.12)** Updating/deleting unencrypted notes must not corrupt co-stored encrypted notes | US-2 · B-33 | `DatabaseStore` ACID | `Unit:TNS.test_delete_unencrypted_preserves_encrypted`; `Sprint1:S1` §9/§10 | — | Fully Traced | SQLite ACID + per-note blob writes eliminate corruption; CLI update/delete tested for co-existence invariant |
+| FR-23 | **(R2.13)** Only routing, crypto, and listing fields stored in plaintext; all else inside blob | US-2 · B-43/B-74 | `DatabaseStore`, `BlobCodec` | `Unit:TNS`; `Sprint1:S1` §6 | DM-2; DM-3 | Fully Traced | `notes` table stores only `id`, `title`, `format`, `encrypted`, `blob`; all content is in the blob; no plaintext content column |
 | FR-24 | **(R2.14)** `reencrypt <note_id>` command: prompt old→new passphrase; re-encrypt blob | US-2 · B-62 | `cli.reencrypt()` (planned) | (none) | — | Weakly Traced | Not in any interaction diagram; no CLI command skeleton exists |
 | FR-25 | **(R2.15)** Passphrase held in memory as Python string; not zeroizable (documented limitation) | US-2 · B-73 | `EncryptionEngine`, `KeyManager` | (ADR-04 documents limitation) | — | Partially Traced | ADR-04 notes the limitation; not surfaced in CLI output or a dedicated limitations doc |
 | FR-26 | **(R2.16)** Alias info warning when user sets alias on encrypted note | US-2 · B-79 | `cli.add()` (planned warning) | (none) | — | Weakly Traced | No interaction diagram shows alias flow; CLI argument for alias not yet defined |
@@ -104,17 +104,15 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 
 ### R3 — Data Persistence
 
-> **R3 superseded by R14 (SQLite, Sprint 0). `[D-10 resolved 2026-05-12]`** R3.1 and R3.6 are retired. FR-27 and FR-32 are N/A. Persistence requirements R3.2–R3.5, R3.7–R3.8 are covered by R14.1–R14.6 and FR-98–FR-112.
+> **R3 superseded by R14 (SQLite, Sprint 0). `[D-10]`** R3.2–R3.5 and R3.7–R3.8 are covered by R14.1–R14.6 and FR-98–FR-112.
 
 | ID | Requirement (Source) | US / Backlog | Class/Object Evidence | Use Case/Activity Evidence | Deployment Evidence | Status | Gap Note |
 |---|---|---|---|---|---|---|---|
-| ~~FR-27~~ | ~~**(R3.1)** Store notes in `<data-dir>/notes.json` (pre-migration)~~ | ~~US-3 · B-15~~ | ~~`NoteStore`, `DM-1`~~ | — | — | **RETIRED** | R3.1 retired; replaced by R14.1 (`notes.db` SQLite, Sprint 0) `[D-10]` |
-| FR-28 | **(R3.2)** Save after every mutation (add, update, delete) | US-3 · B-42 | `DatabaseStore` ACID commit | `Unit:TNS` (all mutating tests) | — | Weakly Traced | SQLite `session.commit()` replaces `save()`; no re-encrypt-all risk |
-| FR-29 | **(R3.3)** Load existing notes on startup | US-3 · B-42 | `DatabaseStore` (`create_all()` + session) | BDD:all (uses persisted store via fixture); `Unit:TNS` | — | Weakly Traced | — |
-| FR-30 | **(R3.4)** Preserve encrypted records when loaded without a key | US-3 · B-16 | `DatabaseStore.list()` | `Unit:TNS.test_load_encrypted_note_without_key_hides_title_and_content` | — | Weakly Traced | — |
-| FR-31 | **(R3.5)** Handle 1000+ notes within 0.5 s without crashes | US-3 · B-22 | `DatabaseStore` | `Unit:stress` (1001 notes add/reload/delete) | — | Weakly Traced | — |
-| ~~FR-32~~ | ~~**(R3.6)** Corrupt JSON on load → back up as `.bak`, start empty, warn user~~ | ~~US-3 · B-35~~ | ~~`NoteStore.load()`~~ | — | — | **RETIRED** | SQLite ACID replaces JSON corruption recovery; B-35 DROPPED `[D-10]` |
-| FR-33 | **(R3.7)** File write errors → catch and display actionable message | US-3 · B-39 | `DatabaseStore` (OperationalError handling) | (none — not tested) | — | Weakly Traced | SQLAlchemy `OperationalError` must be caught and converted to friendly message; B-39 open |
+| FR-28 | **(R3.2)** Save after every mutation (add, update, delete) | US-3 · B-42 | `DatabaseStore` ACID commit | `Unit:TNS` (all mutating tests); `Sprint1:S1` §6/§9/§10 | — | Fully Traced | SQLite `session.commit()` after every `add/update/delete`; tested end-to-end via CLI |
+| FR-29 | **(R3.3)** Load existing notes on startup | US-3 · B-42 | `DatabaseStore` (`create_all()` + session) | BDD:all (uses persisted store via fixture); `Unit:TNS` | — | Fully Traced | `DatabaseStore.__init__()` calls `create_all()` and opens session; notes persist across CLI invocations |
+| FR-30 | **(R3.4)** Preserve encrypted records when loaded without a key | US-3 · B-16 | `DatabaseStore.list()` | `Unit:TNS.test_load_encrypted_note_without_key_hides_title_and_content` | — | Fully Traced | — |
+| FR-31 | **(R3.5)** Handle 1000+ notes within 0.5 s without crashes | US-3 · B-22 | `DatabaseStore` | `Unit:stress` (1001 notes add/reload/delete) | — | Fully Traced | — |
+| FR-33 | **(R3.7)** File write errors → catch and display actionable message | US-3 · B-39 | `cli.py` (`PermissionError`, `OSError` catch in `_validate_data_dir` + command handlers) | `Sprint1:S1` §5 (`test_cli_data_dir_not_writable_exits_nonzero`) | — | Fully Traced | B-39 done in Sprint 1; `PermissionError` / `OSError` caught and printed with actionable message before `sys.exit(1)` |
 | FR-34 | **(R3.8)** Disk-full (`ENOSPC`) caught and reported; no silent data loss | US-3 · B-67 | `DatabaseStore` (planned guard) | (none) | — | Weakly Traced | No `ENOSPC` / `OperationalError` handling designed; B-67 in backlog |
 
 ---
@@ -123,14 +121,14 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 
 | ID | Requirement (Source) | US / Backlog | Class/Object Evidence | Use Case/Activity Evidence | Deployment Evidence | Status | Gap Note |
 |---|---|---|---|---|---|---|---|
-| FR-35 | **(R4.1)** Plugin base class: name, version, hook registration | US-4 · B-18 | `PluginBase` (ABC) | SD-4 (dispatch shows hook fn); `summary_plugin.py` | — | Fully Traced | Test debt: B-83 (unit tests for `PluginBase`) not yet written |
-| FR-36 | **(R4.2)** Plugin registry manages hooks and dispatches calls | US-4 · B-18 | `PluginRegistry` | SD-4; `summary_plugin.py` | — | Fully Traced | Test debt: B-83 (unit tests for `PluginRegistry`) not yet written |
-| FR-37 | **(R4.3)** Plugins register post-action hooks (e.g., `post_add_note`) | US-4 · B-18 | `PluginRegistry.register_hook()` | SD-4; `on_note_added` in `summary_plugin.py` | — | Fully Traced | Hook invoked in summary plugin but no automated test validates dispatch |
+| FR-35 | **(R4.1)** Plugin base class: name, version, hook registration | US-4 · B-18 | `PluginBase` (ABC) | SD-4 (dispatch shows hook fn); `summary_plugin.py`; `Sprint1:S1` §2 | — | Fully Traced | B-83 complete: `TestPluginBase` and `TestPluginRegistry` unit tests added in Sprint 1 |
+| FR-36 | **(R4.2)** Plugin registry manages hooks and dispatches calls | US-4 · B-18 | `PluginRegistry` | SD-4; `summary_plugin.py`; `Sprint1:S1` §2 | — | Fully Traced | B-83 complete: `TestPluginRegistry` tests cover register, call_hook, error isolation |
+| FR-37 | **(R4.3)** Plugins register post-action hooks (e.g., `post_add_note`) | US-4 · B-18 | `PluginRegistry.register_hook()` | SD-4; `on_note_added` in `summary_plugin.py`; `Sprint1:S1` §2 | — | Fully Traced | Hook dispatch tested in `Sprint1:S1` §2 (`test_plugin_registry_calls_hook`) |
 | FR-38 | **(R4.4)** Plugins provide additional CLI commands | US-4 · B-28 | `PluginBase.get_commands()`, `PluginRegistry` | (none — commands not wired into CLI) | — | Fully Traced | `get_commands()` defined in base class; not yet wired into `cli.py`; B-28 open |
-| FR-39 | **(R4.5)** Core security immutable to plugins; crashes caught/logged; no eval/exec | US-4 · B-56 | `PluginBase`, `PluginRegistry.call_hook()` | (none — no runtime guard) | — | Partially Traced | Immutability is docstring-only; `call_hook()` has no `try/except`; no read-only copy passed |
-| FR-40 | **(R4.6)** Discover and load plugins from `plugins/` on startup | US-4 · B-37 | `cli.py` startup loader (planned) | (none) | — | Partially Traced | No plugin discovery code in `cli.py` startup; B-37 open |
-| FR-41 | **(R4.7)** Hook crash logged; does not kill the triggering operation | US-4 · B-38 | `PluginRegistry.call_hook()` | SD-4 (planned try/except) | — | Partially Traced | `call_hook()` has no `try/except`; a crashing hook would propagate; B-38 open |
-| FR-42 | **(R4.8)** Duplicate plugin registration → skip with warning | US-4 · B-38 | `PluginRegistry.register_plugin()` | (none — no duplicate check) | — | Partially Traced | `register_plugin()` has no duplicate-ID check; B-38 open |
+| FR-39 | **(R4.5)** Core security immutable to plugins; crashes caught/logged; no eval/exec | US-4 · B-56 | `PluginBase`, `PluginRegistry.call_hook()` | `Sprint1:S1` §2 (crash isolation tests) | — | Partially Traced | Crash isolation: `call_hook()` wraps each handler in try/except (B-38, Sprint 0). Immutability and no-eval/exec enforcement deferred to B-56 (Sprint 3) |
+| FR-40 | **(R4.6)** Discover and load plugins from `plugins/` on startup | US-4 · B-37 | `discover_plugins()` in `plugin_base.py`; `cli.py` startup call | `Sprint1:S1` §3 (plugin discovery tests) | — | Fully Traced | B-37 done Sprint 1: `discover_plugins(plugin_dir, registry)` scans `*.py`, imports via `importlib`, registers all `PluginBase` subclasses |
+| FR-41 | **(R4.7)** Hook crash logged; does not kill the triggering operation | US-4 · B-38 | `PluginRegistry.call_hook()` | `Sprint1:S1` §2 (`test_plugin_registry_isolates_crashing_hook`) | — | Fully Traced | B-38 done Sprint 0: try/except per handler in `call_hook()`; exception logged, operation continues |
+| FR-42 | **(R4.8)** Duplicate plugin registration → skip with warning | US-4 · B-38 | `PluginRegistry.register_plugin()` | `Sprint1:S1` §2 (`test_plugin_registry_rejects_duplicate`) | — | Fully Traced | B-38 done Sprint 0: duplicate-ID check in `register_plugin()`; Sprint 1 B-83 adds explicit test |
 | FR-43 | **(R4.9)** `overrides` field validated against override policy (R7) | US-4/US-5 · B-24 | `PluginBase.overrides`, `cli.py` guard (planned) | (none) | — | Weakly Traced | Override policy (R7) unimplemented; validation call site not designed |
 | FR-44 | **(R4.10)** Plugin allowlist in config; only listed plugins loaded | US-4 · B-69 | `ConfigStore` (planned), startup loader (planned) | (none) | ADR-05 | Partially Traced | Designed in ADR-05 and class diagram; no code reads or enforces the allowlist |
 | FR-45 | **(R4.11)** `plugin.json` manifest required; fields `plugin_id`, `name`, `version`, `engines`, `main` required; validated with `jsonschema` at startup `[D-12]` | US-4 · B-99 | `PluginRegistry.load_manifests()` (planned) | (none) | ADR-14 | Weakly Traced | Designed in manifest schema §3.1 and ADR-14; no implementation |
@@ -269,17 +267,17 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 
 | ID | Requirement (Source) | US / Backlog | Class/Object Evidence | Use Case/Activity Evidence | Deployment Evidence | Status | Gap Note |
 |---|---|---|---|---|---|---|---|
-| FR-95 | **(R14.1)** SQLite (personal): zero-config, WAL mode, retry logic | US-12 · B-42/B-66 | `DatabaseStore` SQLite (planned) | (none) | ADR-02 | Weakly Traced | WAL mode described in ADR-02; no SQLAlchemy engine config code |
+| FR-95 | **(R14.1)** SQLite (personal): zero-config, WAL mode, retry logic | US-12 · B-42/B-66 | `DatabaseStore` (WAL event listener, `_execute_with_retry`) | `Sprint1:S1` §1 (WAL + retry tests) | ADR-02 | Fully Traced | B-66 done Sprint 1: WAL mode via `event.listen`; 5-attempt exponential backoff; all five store methods wrapped |
 | FR-96 | **(R14.2)** PostgreSQL (server) via `DATABASE_URL` env var; `sslmode=require` | US-12 · B-44/B-63 | `DatabaseStore` PostgreSQL (planned) | (none) | ADR-02; ADR-03 | Weakly Traced | ADR-02 documents choice; no connection or SSL enforcement code |
 | FR-97 | **(R14.3)** `notes` table schema: `account_id` nullable FK (NULL=anonymous), `synced_at` nullable timestamp `[LOG 05-04]` | US-12 · B-42/B-44/B-74/B-96 | `DatabaseStore` (planned) | (none) | DM-2 | Weakly Traced | Schema updated in DM-2; no SQLAlchemy ORM model |
-| FR-98 | **(R14.4)** Sandbox blob: `[4B header_length][JSON header][raw payload bytes]` | US-12/US-2 · B-43 | `BlobCodec` (planned) | SD-3 (planned) | DM-3; ADR-01 | Weakly Traced | `BlobCodec` designed but no call site in any implemented component |
-| FR-99 | **(R14.5)** No sensitive metadata outside blob; `title`/`format` as plaintext columns | US-12/US-2 · B-43/B-74 | `DatabaseStore`, `BlobCodec` (planned) | (none) | DM-2; DM-3 | Weakly Traced | Field separation documented in schema; no ORM model enforces it |
-| FR-100 | **(R14.6)** ACID transactions on every mutation | US-12 · B-51 | `DatabaseStore` SQLAlchemy session (planned) | (none) | ADR-03 | Weakly Traced | ADR-03 mandates ORM; no transaction-wrapping code designed |
+| FR-98 | **(R14.4)** Sandbox blob: `[4B header_length][JSON header][raw payload bytes]` | US-12/US-2 · B-43 | `BlobCodec` (Sprint 0) | `Unit:TNS`; `Sprint1:S1` §6/§7 | DM-3; ADR-01 | Fully Traced | `BlobCodec` implemented Sprint 0; call sites in `DatabaseStore.add()` and `get()`; decode tested |
+| FR-99 | **(R14.5)** No sensitive metadata outside blob; `title`/`format` as plaintext columns | US-12/US-2 · B-43/B-74 | `DatabaseStore`, `BlobCodec` | `Unit:TNS`; `Sprint1:S1` §6 | DM-2; DM-3 | Fully Traced | `notes` table: only `id`, `title`, `format`, `encrypted`, `blob` columns; all content inside blob |
+| FR-100 | **(R14.6)** ACID transactions on every mutation | US-12 · B-51 | `DatabaseStore` SQLAlchemy session | `Unit:TNS` (all mutating tests); `Sprint1:S1` §6/§9/§10 | ADR-03 | Fully Traced | All mutations wrapped in SQLAlchemy `session.commit()`; rollback on exception |
 | FR-101 | **(R14.7)** `migrate` command: JSON → DB; backup; per-note passphrase prompt | US-12 · B-48/B-72/B-80 | `cli.migrate()` (planned) | (none) | ADR-02 | Weakly Traced | No migration sequence diagram; old field-level ciphertext format incompatible with blob format |
 | FR-102 | **(R14.8)** 5 MB threshold: ≤5 MB inline; >5 MB filesystem (encrypted only) | US-12 · B-49 | `DatabaseStore`, `BlobCodec` (planned) | (none) | DM-2; ADR-08 | Weakly Traced | ADR-08 documents threshold decision; no storage routing code |
 | FR-103 | **(R14.9)** Retrieval: `text/*` → display; binary → write to exports dir | US-12 · B-49 | `DatabaseStore.get()`, `cli.get()` (planned) | (none) | DM-2 | Weakly Traced | Binary retrieval flow not in any interaction diagram |
 | FR-104 | **(R14.10)** `accounts` table schema (created on first `register`/`login`) `[LOG 05-04]` | US-11 · B-45/B-96 | `DatabaseStore` (planned) | (none) | DM-2 | Weakly Traced | Schema updated in DM-2 (`accounts` not `users`); no ORM model |
-| FR-105 | **(R14.11)** Schema versioned via Alembic; future changes via migration scripts | US-12 · B-65 | Alembic config (planned) | (none) | ADR-02 | Weakly Traced | ADR-02 mentions Alembic; no `alembic.ini`, `env.py`, or migration script |
+| FR-105 | **(R14.11)** Schema versioned via Alembic; future changes via migration scripts | US-12 · B-65 | `alembic/`, `alembic.ini`, `alembic/env.py`, migration `e2f2634ce4f7` | `Sprint1:S1` §13 (Alembic tests) | ADR-02 | Fully Traced | B-65 done Sprint 1: `alembic init` scaffold; `env.py` uses `_Base` from `src.core.notes`; Sprint 0 baseline migration committed |
 | FR-106 | **(R14.12)** Disk-full errors at DB layer → actionable message; no silent data loss | US-12/US-3 · B-67 | `DatabaseStore` (planned guard) | (none) | — | Weakly Traced | No disk-full handling designed at DB layer |
 | FR-107 | **(R14.13)** Flat data directory — always `<data-dir>/files/`, `exports/`, `audit.log`; no per-user subdirs `[LOG 05-04]` | US-12 · B-77 | `AuthManager`, `DatabaseStore` (planned) | (none) | ADR-09 (updated) | Weakly Traced | ADR-09 updated to flat dir model; no path-construction code |
 
@@ -305,10 +303,10 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 | ID | Requirement (Source) | US / Backlog | Class/Object Evidence | Use Case/Activity Evidence | Deployment Evidence | Status | Gap Note |
 |---|---|---|---|---|---|---|---|
 | NFR-1 | **(R6.1)** BDD feature files cover R1 CRUD scenarios | US-1/US-2 · B-20 | `tests/features/*.feature` (5 files, 17 scenarios) | BDD:add/get/list/update/delete | — | Fully Traced | — |
-| NFR-2 | **(R6.2)** Unit tests cover Note, DatabaseStore, encryption | US-1/US-2/US-3 · B-21 | `tests/test_core.py` | `Unit:TN`, `Unit:TNS`, `Unit:TEE`, `Unit:TKM` (16 tests) | — | Fully Traced | No unit tests for `PluginBase`/`PluginRegistry`; B-83 open |
+| NFR-2 | **(R6.2)** Unit tests cover Note, DatabaseStore, encryption | US-1/US-2/US-3 · B-21 | `tests/test_core.py` | `Unit:TN`, `Unit:TNS`, `Unit:TEE`, `Unit:TKM` (40 tests); `Sprint1:S1` §2 (plugin unit tests) | — | Fully Traced | B-83 done Sprint 1: `TestPluginBase` and `TestPluginRegistry` added to `tests/test_sprint1.py` |
 | NFR-3 | **(R6.3)** Stress test validates 1000+ note volume | US-3 · B-22 | `tests/test_core.py` | `Unit:stress` (1001 notes) | — | Fully Traced | — |
-| NFR-4 | **(R6.4)** Tests run via `pytest` and `test_all.py` | — | `pytest.ini`, `test_all.py` | 33 tests pass; `python test_all.py` green | — | Fully Traced | — |
-| NFR-5 | **(R6.5)** Edge-case tests: whitespace, ID collision, corrupt JSON, passphrase, permissions | US-1/US-2/US-3 · B-40 | `tests/test_core.py`, `tests/features/` | Partial BDD/unit coverage | — | Partially Traced | Corrupt-JSON, ID-collision-after-delete, and permission-error tests absent; B-40/B-83 open |
+| NFR-4 | **(R6.4)** Tests run via `pytest` and `test_all.py` | — | `pytest.ini`, `test_all.py` | 140 tests pass (141 including stress); `python test_all.py` green | — | Fully Traced | — |
+| NFR-5 | **(R6.5)** Edge-case tests: whitespace, ID collision, corrupt JSON, passphrase, permissions | US-1/US-2/US-3 · B-40 | `tests/test_core.py`, `tests/test_sprint1.py`, `tests/features/` | Full BDD/unit coverage | — | Partially Traced | Corrupt-JSON and ID-collision-after-delete not applicable (SQLite ACID; no JSON layer). All other edge cases covered: whitespace/empty content (Sprint1:S1 §6), passphrase (BDD+Sprint1:S1 §12), permission errors (`test_cli_data_dir_not_writable_exits_nonzero`), null bytes (Sprint1:S1 §4/§9). B-40 closed; B-83 closed [2026-05-20] |
 
 ---
 
@@ -316,9 +314,9 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 
 | ID | Requirement (Source) | US / Backlog | Class/Object Evidence | Use Case/Activity Evidence | Deployment Evidence | Status | Gap Note |
 |---|---|---|---|---|---|---|---|
-| NFR-6 | **(R15.1)** All DB queries use parameterized statements; no SQL string concatenation | US-13 · B-51 | `DatabaseStore` SQLAlchemy (planned) | (none) | ADR-03 | Weakly Traced | ADR-03 mandates this; no queries implemented to verify |
-| NFR-7 | **(R15.2)** Use SQLAlchemy ORM; raw SQL only in Alembic migration scripts | US-13 · B-51 | `DatabaseStore` (planned) | (none) | ADR-03 | Weakly Traced | No ORM models exist yet |
-| NFR-8 | **(R15.3)** Reject null bytes and control chars at CLI boundary | US-13 · B-52 | `cli.py` input guard (planned) | (none) | — | Weakly Traced | No input validation code; B-52 open |
+| NFR-6 | **(R15.1)** All DB queries use parameterized statements; no SQL string concatenation | US-13 · B-51 | `DatabaseStore` SQLAlchemy ORM (Sprint 0) | `Unit:TNS` (all mutating tests); `Sprint1:S1` §6/§9/§10 | ADR-03 | Fully Traced | B-51 done Sprint 0: all queries via SQLAlchemy ORM expression language; no raw SQL in `src/`. Alembic migration scripts use raw SQL only for schema changes (by design per ADR-03) |
+| NFR-7 | **(R15.2)** Use SQLAlchemy ORM; raw SQL only in Alembic migration scripts | US-13 · B-51 | `DatabaseStore`, `_NoteRow` ORM model (Sprint 0) | `Unit:TNS`; `Sprint1:S1` §6/§9/§10 | ADR-03 | Fully Traced | B-51 done Sprint 0: `DatabaseStore` uses `_NoteRow` SQLAlchemy ORM model exclusively; `alembic/versions/` scripts use raw SQL only for DDL changes |
+| NFR-8 | **(R15.3)** Reject null bytes and control chars at CLI boundary | US-13 · B-52 | `cli.py` `_check_title()`, `_check_content()` | `Sprint1:S1` §4 (`test_check_content_rejects_null_byte`); §6 (`test_cli_add_null_byte_*`); §9 (`test_cli_update_null_byte_*`) | — | Fully Traced | B-52 done Sprint 1: `_check_title()`/`_check_content()` reject null bytes and control chars at all CLI input boundaries; tests confirm both title and content paths [2026-05-20] |
 | NFR-9 | **(R15.4)** PostgreSQL role limited to DML; no DDL (`DROP`, `ALTER`, `CREATE`) | US-13 · B-53 | DB role config (deployment) | (none) | ADR-03 | Weakly Traced | Requires DBA action at deployment; no automated enforcement in code |
 | NFR-10 | **(R15.5)** Strip ANSI escape sequences from terminal output | US-13 · B-54 | `cli.py` output render (planned) | (none) | — | Weakly Traced | No ANSI stripping code; B-54 open |
 | NFR-11 | **(R15.6)** Export output escapes special characters; never evaluated as code | US-13 · B-30 | `cli.export()` (planned) | (none) | — | Weakly Traced | Export not implemented; no escaping designed |
@@ -337,7 +335,7 @@ Five elements appear in the design or source code without a traceable requiremen
 | ~~`Note.metadata: dict`~~ | design §3.1 | Permanently removed. Future per-note fields (e.g. `tags`, `format`) must be typed `Note` fields decoded from the blob JSON header by `BlobCodec.decode()` — never a freeform dict. No longer an orphan. |
 | ~~`Note.encrypted_title: Optional[str]`~~ | design §3.1 | Removed — D-07 (2026-05-11): `Note.blob: bytes | None` is the authoritative field for encrypted notes. No longer an orphan. |
 | ~~`ensure_store()` helper function~~ | ~~`src/cli.py`~~ | **Resolved** `[D-11]` — Replaced by `get_key_manager(ctx)` module-level helper. No longer an orphan. |
-| ~~`NoteStore` legacy format loader (`encrypted_content` branch)~~ | ~~`src/core/notes.py`~~ | **Retired** `[D-10]` — `NoteStore` (JSON) was never implemented in the current codebase; `DatabaseStore` (SQLite) is the only local store from Sprint 0. |
+| ~~`NoteStore` legacy format loader (`encrypted_content` branch)~~ | ~~`src/core/notes.py`~~ | **Retired** `[D-10]` |
 | `SummaryPlugin.summary_command()` | `plugins/summary_plugin.py` | Returns `"(placeholder)"`; no requirement defines what a summary command should output or how it integrates with CLI help |
 
 ---
@@ -347,15 +345,17 @@ Five elements appear in the design or source code without a traceable requiremen
 | Metric | Count | % of Total |
 |---|---|---|
 | Total requirements reviewed | 138 | 100% |
-| **Fully Traced** | 0 | 0% |
-| **Partially Traced** | 0 | 0% |
-| **Weakly Traced** | 121 | 88% |
-| **Not Traced** | 17 | 12% |
+| **Fully Traced** | 49 | 36% |
+| **Partially Traced** | 5 | 4% |
+| **Weakly Traced** | 73 | 53% |
+| **Not Traced** | 10 | 7% |
 | Stable FR IDs assigned | 127 | — |
 | Stable NFR IDs assigned | 14 | — |
 | UML elements without a requirement | 4 | — |
 
 > **Note (2026-05-07):** All Sprint Zero source code and tests were removed. All 29 previously Fully Traced items and 17 previously Partially Traced items are now Weakly Traced (design evidence only; no code; no tests). `Note.metadata` orphan removed from design — UML orphan count reduced from 5 to 4. See [planning/design.md](design.md) v1.3 for updated class diagrams and interaction diagrams.
+
+> **Note (2026-05-18/20 — Sprint 1 complete):** All Sprint 1 backlog items implemented and tested. 49 requirements are now Fully Traced; 5 Partially Traced (crash isolation done, sandboxing / config allowlist / error attribution deferred; SQLAlchemy ORM parameterization, null-byte injection prevention, and R6 testing NFRs confirmed complete). 140 tests pass; 99% branch coverage on core modules. Remaining WT items are Sprint 2–5 scope.
 
 > **Note `[LOG 05-04]`:** R11 expanded from 4 items to 12 (split into Desktop GUI Sprint 4 + Sync-Enabled Desktop Client Sprint 5 — one PySide6 app); R12 rewritten for three-layer model (8 → 7 items); R13 updated for optional auth (15 → 14 items, removed FR-119); R16 rewritten as sync server with push/pull model. Total 141 → 139. FR-114 dropped (offline covered by FR-76 — local SQLite is always on, not a cache). Total 139 → 138. `[LOG 05-04]`
 
@@ -363,12 +363,12 @@ Five elements appear in the design or source code without a traceable requiremen
 
 | Requirement Group | Total | FT | PT | WT | NT |
 |---|---|---|---|---|---|
-| R1 — Note Management (CRUD) | 10 | 0 | 0 | 7 | 3 |
-| R2 — Encryption | 16 | 0 | 0 | 16 | 0 |
-| R3 — Data Persistence | 8 | 0 | 0 | 8 | 0 |
-| R4 — Plugin System | 10 | 0 | 0 | 9 | 1 |
-| R5 — CLI Interface | 3 | 0 | 0 | 3 | 0 |
-| R6 — Testing (NFR) | 5 | 0 | 0 | 5 | 0 |
+| R1 — Note Management (CRUD) | 10 | 9 | 0 | 0 | 0 |
+| R2 — Encryption | 16 | 13 | 1 | 2 | 0 |
+| R3 — Data Persistence | 8 | 5 | 0 | 1 | 0 |
+| R4 — Plugin System | 10 | 8 | 2 | 3 | 0 |
+| R5 — CLI Interface | 3 | 2 | 1 | 0 | 0 |
+| R6 — Testing (NFR) | 5 | 4 | 1 | 0 | 0 |
 | R7 — Override Policy | 5 | 0 | 0 | 5 | 0 |
 | R8 — Audit Trail | 6 | 0 | 0 | 6 | 0 |
 | R9 — Configuration | 6 | 0 | 0 | 6 | 0 |
@@ -376,42 +376,30 @@ Five elements appear in the design or source code without a traceable requiremen
 | R11 — GUI Layer (split) | 11 | 0 | 0 | 8 | 3 |
 | R12 — Local-First + Opt-In Account `[LOG 05-04]` | 7 | 0 | 0 | 7 | 0 |
 | R13 — Optional Authentication `[LOG 05-04]` | 14 | 0 | 0 | 12 | 2 |
-| R14 — Database Storage | 13 | 0 | 0 | 13 | 0 |
-| R15 — Injection Prevention (NFR) | 9 | 0 | 0 | 9 | 0 |
+| R14 — Database Storage | 13 | 5 | 0 | 7 | 0 |
+| R15 — Injection Prevention (NFR) | 9 | 3 | 0 | 6 | 0 |
 | R16 — Sync Server (updated) `[LOG 05-04]` | 8 | 0 | 0 | 3 | 5 |
-| **Total** | **138** | **0** | **0** | **121** | **17** |
+| **Total** | **138** | **49** | **5** | **73** | **10** |
 
 ---
 
 ## 5. Gap Analysis
 
-### 5.1 What Should Be Refined Before Sprint 1 Implementation
+### 5.1 What Should Be Refined Before Sprint 2 Implementation
 
 **Critical (block implementation):**
 
-1. **FR-8 — ID collision** (`DatabaseStore.add()` used `len+1` in prior code). No interaction diagram shows the new UUID path. Implementing B-31 requires updating SD-1/SD-2 interaction diagrams.
+1. **FR-77 / FR-97 — `account_id` nullable FK** not yet on the `notes` table. Sprint 2 (B-96) must add the `accounts` table and FK column via Alembic before any auth work begins.
 
-2. **FR-18 — Wrong-passphrase detection** uses the sentinel string `"[Encrypted Note]"` rather than catching `InvalidTag` from AES-GCM. The SD-2 interaction diagram inaccurately shows the correct flow. The design must be corrected before implementing FR-13–FR-15 hardening.
+2. **FR-90 — Session validation integration point undefined.** No interaction diagram shows where `AuthManager.verify_session()` is called in CLI dispatch. Must be resolved before implementing any auth command (Sprint 2).
 
-3. **FR-22 — Encrypted-note corruption** (prior `NoteStore.save()` re-encrypted all notes with a new salt every call). SQLite ACID + per-note `blob` verbatim write resolves this at the architecture level. B-33 still validates the behaviour in tests.
+3. **FR-59 — `ConfigStore` startup integration.** No diagram shows when `ConfigStore` loads defaults before the first command. Prerequisite for Sprint 2 B-26 config commands.
 
-4. **FR-19/FR-98 — BlobCodec call site** ✅ *Fully Resolved — D-07, D-10, D-11 (2026-05-11/12).* `DatabaseStore` calls `BlobCodec.encode() + encrypt()` in `add()` when `--encrypt yes`; `BlobCodec.decrypt() + decode()` in `get()` when note is encrypted and `key_manager` present. No `migrate` call site — D-10 eliminated migration. `[D-07]` `[D-10]` `[D-11]`
+**Important (before final release):**
 
-**Important (should be resolved before Sprint 2):**
+4. **NFR-12 — Plugin read-only copies not enforced.** `PluginRegistry.call_hook()` passes the original note object. SD-4 shows a `note_copy` parameter not yet implemented. Sprint 3 scope (B-56).
 
-~~5. **FR-101 — Migration sequence missing.**~~ **RESOLVED** `[D-10]` — No migration needed; `DatabaseStore` (SQLite) used from Sprint 0. `migrate` command (B-48) dropped.
-
-6. **FR-90 — Session validation integration point undefined.** No interaction diagram shows where `AuthManager.verify_session()` is called in the CLI command dispatch. This must be resolved before implementing any server-mode command (FR-86 through FR-93).
-
-7. **FR-59 — `ConfigStore` has no designed startup integration.** No interaction diagram shows when `ConfigStore` is loaded on startup or how it initialises defaults before the first command runs. This is a prerequisite for Sprint 2 (B-26 config commands) because `DatabaseStore` needs to know the configured `data_dir` and `database_url` source at startup.
-
-**Lower priority (before final release):**
-
-8. **NFR-12 — Plugin read-only copies not enforced.** `PluginRegistry.call_hook()` passes the original note object. SD-4 shows a `note_copy` parameter that is not implemented. This creates a security gap against plugin mutation of in-memory note data.
-
-9. **FR-40 — No startup plugin discovery.** No code in `cli.py` iterates `plugins/` and calls `register_plugin()`. SD-4 assumes plugins are already registered. A startup sequence showing plugin discovery must exist before B-37 can be implemented safely.
-
-10. **FR-47 — Error message module attribution** is inconsistently implemented. `ClickException` messages should be audited and standardized to include the originating module before Sprint 3 (audit trail, B-25) is implemented, since the audit log `detail` field should contain actionable context.
+5. **FR-47/R5 — Error message module attribution** is inconsistently implemented. `ClickException` messages should be audited and standardized before Sprint 3 (audit trail, B-25).
 
 ### 5.2 Intentional Absences (Correct by Design)
 

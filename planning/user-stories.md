@@ -11,7 +11,6 @@
 - Delete: remove by ID → gone from list. Non-existent ID → error.
 - Non-zero exit code on all errors. Error messages are actionable.
 - `--data-dir` sets storage location at runtime (overrides `config['data_dir']` from `ConfigStore`; see design.md §4.5). Must be a writable directory; existing file at path → error; no write permission → error with message. Creates directory if needed. `[REQ R1.9]` `[D-06]`
-- ~~Corrupt `notes.json` → back up as `notes.json.bak`, start empty store, warn user.~~ — **N/A** `[D-10]` (SQLite ACID replaces JSON corruption recovery)
 - IDs are gap-safe; deletions never cause ID collision on subsequent adds.
 
 ## US-2: Encrypt and Decrypt Notes
@@ -32,18 +31,9 @@
 - Updating/deleting unencrypted notes must not corrupt co-stored encrypted notes.
 - No default key; key manager required for all encrypted operations.
 
-## US-3: Persist Notes Across Sessions — **RETIRED** `[D-10 resolved 2026-05-12]`
-> **Retired:** `NoteStore` (JSON) was never implemented. `DatabaseStore` (SQLite) is the only local store from Sprint 0. All acceptance criteria in US-3 are superseded by US-12 (R14). US-3 is preserved for historical reference.
+## US-3: Persist Notes Across Sessions — **Superseded by US-12**
 
-~~**As a** user, **I want** notes to persist after closing the CLI **so that** I keep my data.~~
-
-**~~Acceptance Criteria:~~**
-- ~~Notes saved to `notes.json` after every add, update, or delete. (Pre-migration only; database storage via US-12 after migration.)~~
-- ~~All notes loaded on startup.~~
-- ~~Encrypted records preserved on no-key load.~~
-- ~~Corrupt JSON detected on load → back up as `.bak`, start empty, warn user.~~
-- ~~File write errors → catch and display actionable message (e.g., "Cannot write to <path>: permission denied").~~
-- ~~Store handles listing, searching, fetching, deleting 1000+ notes within 0.5 seconds without crashes or exceptions.~~
+> `DatabaseStore` (SQLite) is the only local store from Sprint 0. Persistence requirements are fully covered by US-12 (R14). `[D-10]`
 
 ## US-4: Extend via Plugins
 **As a** developer, **I want to** register plugins **so that** I can add behavior without modifying core code.
@@ -174,7 +164,6 @@
 - **Sandbox binary storage:** blob format `[4-byte header_length][JSON header][raw payload bytes]`. Encrypted notes: entire blob is AES-256-GCM ciphertext.
 - **Retrieval:** decrypt blob → parse header. `text/*` → display in terminal. Binary → write to `<data-dir>/exports/<original_filename>` with restricted permissions; display path + cleanup warning.
 - **Size threshold:** payloads ≤ 5 MB inline in DB. Payloads > 5 MB: only encrypted notes may use filesystem storage at `<data-dir>/files/<note_id>.<ext>`; path stored in blob header. Unencrypted notes always stored inline.
-- ~~`migrate` command converts `notes.json` → SQLite. Backs up JSON first. Prompts passphrase per encrypted note; mismatches → skip with warning. After success, prompts to delete backup.~~ — **DROPPED** `[D-10]` (no JSON storage phase; SQLite from Sprint 0)
 - **Cloud sync (requires account session):** `sync push` sends blobs newer than last `synced_at` to the sync server; `sync pull` fetches account notes updated after the last pull timestamp and merges into local SQLite. Conflict resolution: on pull conflict, desktop shows `MergeWindow` (2-pane: local read-only left, remote editable right); user saves final version. `[D-14 decided 2026-05-14]`
 - Sync server uses PostgreSQL via `DATABASE_URL` env var only (`sslmode=require`). Schema versioned via Alembic.
 - All queries use SQLAlchemy ORM (parameterized). ACID transactions on every mutation. Disk-full errors reported without silent data loss.

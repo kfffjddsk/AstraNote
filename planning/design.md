@@ -23,7 +23,7 @@ AstraNotes uses a **three-layer additive model** — each layer is independent a
 
 The CLI is the primary interface for Sprints 0–3. A PySide6 desktop app (Sprint 4: local CRUD; Sprint 5: sync added) shares the same core modules and SQLite local store. There is no browser-based surface — the sync server (Sprint 5) is a backend-only REST service.
 
-**Design status (updated 2026-05-11):** Sprint 0 CLI implementation was removed on 2026-05-11. Sprint 1 starts from a clean codebase. All module and class designs below are **planned** — not yet implemented. Source files will be created during Sprint 1 and later sprints. Open design gaps are tracked in `Copilot/discussion-list.md` (D-06 onward). `[LOG 05-11]`
+**Design status (updated 2026-05-20):** Sprint 1 complete. Core modules (`DatabaseStore`, `BlobCodec`, `EncryptionEngine`, `KeyManager`, `PluginBase`, `PluginRegistry`) and the Click CLI are implemented and tested. Components marked `[planned]` are scheduled for Sprints 2–5. Open design gaps tracked in `Copilot/discussion-list.md`. `[LOG 05-11]`
 
 ---
 
@@ -89,7 +89,7 @@ The system is organized into five top-level packages. The CLI and desktop GUI de
 
 ## 3. Class Diagrams
 
-### 3.1 Sprint 0 Classes (Planned)
+### 3.1 Sprint 0–1 Classes (Implemented)
 
 ```
 ┌──────────────────────────────┐
@@ -236,9 +236,7 @@ Format: JSON file named `plugin.json` at the root of each plugin subdirectory un
 - `blob` is the **sole authoritative source** for encrypted notes — `title` and `content` are ephemeral in-memory views derived from the blob.
 - `"[Encrypted Note]"` is a **display-only placeholder** — no code path may branch on `title == "[Encrypted Note]"` to detect a wrong passphrase (Pitfall B2, §9.1).
 - On save, unchanged encrypted notes write `blob` verbatim — no re-encrypt. Only the note that was added or modified is re-encoded and re-encrypted. `[REQ R3.2]`
-- ~~`NoteStore` calls `BlobCodec`~~: `DatabaseStore` calls `BlobCodec.encode() + encrypt()` in `add()` when encrypted; `BlobCodec.decrypt() + decode()` in `get()` when a key is present. `[BL B-43]` `[D-07]` `[D-10]` `[D-11]`
-
-> **Note (D-10, 2026-05-12):** `NoteStore` (JSON) was never implemented. `DatabaseStore` (SQLAlchemy/SQLite) is the only local store from Sprint 0. All `NoteStore` references in this document refer to the Sprint 0 `DatabaseStore`. The `migrate` CLI command (B-48) is dropped.
+- `DatabaseStore` calls `BlobCodec.encode() + encrypt()` in `add()` when encrypted; `BlobCodec.decrypt() + decode()` in `get()` when a key is present. `[BL B-43]` `[D-07]`
 
 > `Note.metadata: dict` permanently removed. No requirement defines a freeform metadata field; R2.9 places all metadata inside the blob header. If new per-note fields are needed in the future (e.g. `tags: list[str]`, `format: str`), they must be added as **typed `Note` fields** populated by `BlobCodec.decode()` from the JSON header — not as a freeform dict. A `metadata: dict` grab-bag bypasses the blob structure, cannot be validated, and would recreate the dual-source problem D-07 resolved. `[LOG 05-07]`
 
@@ -307,12 +305,6 @@ Format: JSON file named `plugin.json` at the root of each plugin subdirectory un
 │ + set(key, value)            │
 │ + list() → dict              │
 │ + reset(key)                 │
-└──────────────────────────────┘
-
-┌──────────────────────────────┐
-│ ~~StoreLoadError(Exception)~~│  ~~raised by NoteStore.load() on corrupt notes.json~~  **RETIRED** [D-10]
-├──────────────────────────────┤  No JSON storage layer; SQLite ACID replaces JSON corruption recovery.
-│                              │  SQLAlchemy `OperationalError` propagates on disk-full / lock errors.
 └──────────────────────────────┘
 
 ┌──────────────────────────────┐
@@ -427,7 +419,7 @@ Format: JSON file named `plugin.json` at the root of each plugin subdirectory un
 
 ## 4. Component Interactions
 
-### 4.1 Add Note (unencrypted) — planned (Sprint 0)  `[D-08]` `[D-10]`
+### 4.1 Add Note (unencrypted)  `[D-08]` `[D-10]`
 
 ```
 User
@@ -449,7 +441,7 @@ cli.add()
 "Note 'T' added with ID <uuid> (unencrypted)"
 ```
 
-### 4.2 Add Note (encrypted) — planned (Sprint 0, uses BlobCodec)  `[D-07]` `[D-08]` `[D-10]`
+### 4.2 Add Note (encrypted)  `[D-07]` `[D-08]` `[D-10]`
 
 ```
 User
@@ -827,31 +819,7 @@ Notes:
 
 ## 5. Data Model
 
-### 5.1 `notes.json` — **RETIRED** `[D-10 resolved 2026-05-12]`
-
-> `NoteStore` (JSON) was never implemented. `DatabaseStore` (SQLite) is the only local store from Sprint 0. The JSON format below is preserved for historical reference only; no production code reads or writes this format.
-
-```json
-{
-  "1": {
-    "id": "1",
-    "title": "My Note",
-    "content": "Hello",
-    "created_at": "2026-04-08T10:00:00Z",
-    "modified_at": "2026-04-08T10:00:00Z",
-    "encrypted": false,
-    "blob": null
-  },
-  "2": {
-    "id": "2",
-    "blob": "<base64-encoded encrypted sandbox blob>",
-    "encrypted": true,
-    ...
-  }
-}
-```
-
-### 5.2 Planned: Database Schema
+### 5.2 Database Schema
 
 **`notes` table** — local SQLite (always active)  `[REQ R14.3]`  `[LOG 05-04]`
 
@@ -945,7 +913,7 @@ Each entry records the decision, alternatives considered, rationale, and the sou
 
 **Context:** JSON file storage does not support concurrent access or ACID transactions. Early design proposed forcing a mode selection (Personal/Server); this created unnecessary complexity.
 
-**Decision:** SQLite is always active on the device — no mode selection required. PostgreSQL is used only for the cloud sync server (Sprint 5). ~~A `migrate` CLI command converts existing `notes.json` → SQLite.~~ `DatabaseStore` (SQLAlchemy/SQLite) is used from Sprint 0; there is no JSON storage phase and no `migrate` command. `[D-10 resolved 2026-05-12]` Sync server reads `DATABASE_URL` env var only (never stored in config, `sslmode=require`).
+**Decision:** SQLite is always active on the device — no mode selection required. PostgreSQL is used only for the cloud sync server (Sprint 5). `DatabaseStore` (SQLAlchemy/SQLite) is used from Sprint 0; there is no JSON storage phase and no `migrate` command. `[D-10]` Sync server reads `DATABASE_URL` env var only (never stored in config, `sslmode=require`).
 
 **Alternatives considered:**
 - Hard Personal/Server mode split with forced first-launch prompt → removed (over-engineered; blocked data access behind login)
@@ -1120,7 +1088,6 @@ Maps each requirement group to the implementing module, class, and test coverage
 | R1.7 Non-existent ID error | *(planned)* `src/core/notes.py` | `DatabaseStore.get/update/delete` | `[BL B-14]` — not yet tested |
 | R1.8 Gap-safe IDs | *(planned)* `src/core/notes.py` | `DatabaseStore.add` | `[BL B-31]` — not yet tested |
 | R1.9 `--data-dir` validation | *(planned)* `src/cli.py` | `cli()` group | `[BL B-36]` — not yet tested |
-| ~~R1.10 Corrupt JSON recovery~~ | N/A | ~~`NoteStore.load`~~ | `[BL B-35 DROPPED — D-10]` |
 | R2.1 `--encrypt yes` | *(planned)* `src/cli.py` | `add()` | `[BL B-02]` — not yet tested |
 | R2.2 Passphrase confirmation | *(planned)* `src/cli.py` | `add()` | `[BL B-32]` — not yet tested |
 | R2.3–R2.5 Passphrase on read/update/delete | *(planned)* `src/cli.py` | `get/update/delete` + `get_key_manager(ctx)` `[D-11]` | `[BL B-05, B-09, B-12]` — not yet tested |
@@ -1132,7 +1099,6 @@ Maps each requirement group to the implementing module, class, and test coverage
 | R2.11 Min 8-char passphrase | *(planned)* `src/cli.py` | `get_key_manager(ctx)` `[D-11]` | `[BL B-34]` — not yet tested |
 | R2.12 No cross-note corruption | *(planned)* `src/core/notes.py` | `DatabaseStore` ACID | `[BL B-21]` — not yet tested |
 | R2.14 `reencrypt` command | *(planned)* `src/cli.py` | new command | `[BL B-62]` |
-| ~~R3.1–R3.4 JSON persistence~~ | **RETIRED** `[D-10]` | ~~`NoteStore.load/save`~~ | See R14.1–R14.6 |
 | R3.5 1000+ notes performance | *(planned)* `src/core/notes.py` | `DatabaseStore` | `[BL B-22]` — not yet tested |
 | R4.1–R4.2 Plugin base + registry | *(planned)* `src/core/plugin_base.py` | `PluginBase`, `PluginRegistry` | `[BL B-18, B-83]` — not yet tested |
 | R4.3–R4.4 Hooks + CLI commands | *(planned)* `plugins/summary_plugin.py` | `SummaryPlugin` | `[BL B-18]` — not yet tested |
@@ -1218,10 +1184,10 @@ The new implementation MUST NOT call `key_manager.get_engine()` once per note in
 ### 9.2 Critical Transitions with No Design
 
 **T1 — No store factory or startup router** ✅ *Resolved — see §4.5 and D-06 (2026-05-11)*  
-~~The design describes `NoteStore` (JSON) and `DatabaseStore` (SQLAlchemy) as separate classes but provides no `StoreFactory`, `get_store()`, or CLI startup logic to select between them.~~ Resolved by §4.5 startup sequence diagram: a Click group callback always creates `DatabaseStore(data_dir)` — no store selection needed (`NoteStore` was never implemented). `[D-06]` `[D-10]` `[LOG 05-11]`
+Resolved by §4.5 startup sequence diagram: a Click group callback always creates `DatabaseStore(data_dir)`. `[D-06]` `[LOG 05-11]`
 
 **T2 — No migration sequence diagram** ✅ *Resolved — D-10 (2026-05-12)*  
-~~No migration sequence diagram.~~ Eliminated entirely — `DatabaseStore` (SQLite) used from Sprint 0; no JSON storage phase ever shipped; no `migrate` command. `[D-10 resolved 2026-05-12]`
+Eliminated — `DatabaseStore` (SQLite) used from Sprint 0; no JSON storage phase; no `migrate` command. `[D-10]`
 
 **T3 — No session validation integration point** ✅ *Resolved — D-11 (2026-05-12)*  
 ~~No session validation integration point.~~ Resolved by §4.6: a dedicated `sync` Click group callback calls `AuthManager.verify_session()` — blocking, exits on expired/missing session. CRUD commands run through the top-level callback only (non-blocking `try_load_session()`). Expired session blocks sync only; local CRUD unaffected. `[REQ R13.8]` `[D-11 resolved 2026-05-12]`
@@ -1237,7 +1203,7 @@ The new implementation MUST NOT call `key_manager.get_engine()` once per note in
 ~~`encrypted_title` removed from `Note`.~~ Option C adopted: `Note.blob: bytes | None` is the sole authoritative storage for encrypted notes. `title` and `content` are in-memory views populated by `BlobCodec.decrypt() + decode()`. See §3.1 state table. `[D-07]` `[LOG 05-11]`
 
 **U2 — No error flows in any interaction diagram** ✅ *Resolved — D-08 (2026-05-11)*  
-Error flows added to §4.1, §4.2, §4.2a, and §4.5. Decisions: `InvalidTag` propagates from `BlobCodec.decrypt()` through `DatabaseStore.get()` to CLI, caught as `ClickException` (Option B). Missing note ID: `DatabaseStore.get()` returns `None`; CLI checks and raises `ClickException` (Option A). `OperationalError` on write propagates to CLI, caught as `ClickException` (Option A). ~~Corrupt JSON: `NoteStore.load()` wraps `JSONDecodeError` in `StoreLoadError`~~ — **RETIRED** `[D-10]` (SQLite ACID eliminates JSON corruption path). All error paths exit 1. `[D-08]` `[LOG 05-11]`
+Error flows added to §4.1, §4.2, §4.2a, and §4.5. Decisions: `InvalidTag` propagates from `BlobCodec.decrypt()` through `DatabaseStore.get()` to CLI, caught as `ClickException` (Option B). Missing note ID: `DatabaseStore.get()` returns `None`; CLI checks and raises `ClickException` (Option A). `OperationalError` on write propagates to CLI, caught as `ClickException` (Option A). All error paths exit 1. `[D-08]` `[LOG 05-11]`
 
 **U3 — Plugin allowlist and read-only copies have no designed call site** ✅ *Resolved — D-09 (2026-05-11)*  
 Allowlist check placed in `register_plugin()` — disallowed plugins never enter the registry (VS Code install-time validation model). Note isolation uses `dataclasses.replace(note)` — safe for current all-primitive `Note` fields; mutable fields added in future must be explicitly shallow-copied at the call site. `PluginRegistry` class diagram updated (`_allowed: frozenset`, `call_hook` signature); §4.4 diagram updated. ADR-05 updated. `[D-09]` `[LOG 05-11]`
