@@ -186,7 +186,103 @@ tests/test_core.py::test_store_handles_1001_adds_and_deletes_safely PASSED [100%
 
 ## Sprint 1 Evidence
 
-*(To be filled when Sprint 1 completes. Target: ≥46 tests + CLI integration tests.)*
+### Sprint 1 Gate Pass (2026-05-18) + Coverage Hardening (2026-05-19)
+
+**Date:** 2026-05-19  
+**Baseline:** Sprint 1 full implementation + branch-coverage audit  
+**Environment:** Python 3.12.0, pytest 9.0.3, pytest-bdd 8.1.0, pytest-cov 7.1.0, SQLAlchemy 2.0.49, cryptography 48.0.0, Windows (PowerShell)  
+**Command:** `.venv\Scripts\python.exe -m pytest tests/ -v --tb=short`
+
+### Result: 125 PASSED / 0 FAILED
+
+```
+============================= test session starts =============================
+platform win32 -- Python 3.12.0, pytest-9.0.3, pluggy-1.6.0
+rootdir: D:\File\School\Santa Clara\Course\CSEN 296-B\AstraNote
+configfile: pytest.ini
+plugins: anyio-4.13.0, bdd-8.1.0, cov-7.1.0
+collected 125 items
+
+tests\steps\test_steps.py .................                              [ 13%]
+tests\test_core.py ........................................                [ 45%]
+tests\test_sprint1.py ..................................................................
+..........                                                               [100%]
+
+============================= 125 passed in 2.78s =============================
+```
+
+| Suite | Count | Notes |
+|---|---|---|
+| BDD scenarios (`tests/steps/test_steps.py`) | 17 | All CRUD + encryption paths (R1, R2) |
+| Unit — `test_core.py` | 39 | See breakdown below |
+| Stress — `test_core.py` | 1 | 1 001 notes; list < 0.5 s [B-22] *(deselected by default)* |
+| Unit + CLI — `test_sprint1.py` | 68 | See breakdown below |
+| **Total (all)** | **125** | |
+| **Total (excl. stress)** | **124** | |
+
+#### test_core.py breakdown (39 unit + 1 stress)
+
+| Section | Tests | Coverage |
+|---|---|---|
+| §1 Note dataclass | 6 | create, update (title, content, both, no-op), validation |
+| §2 DatabaseStore add/get | 5 | persistence, encrypted blob, placeholder title |
+| §3 DatabaseStore update | 5 | unencrypted, encrypted (blob replace, content ignored), content-only, not-found |
+| §4 DatabaseStore delete | 2 | remove, not-found |
+| §5 DatabaseStore list | 3 | empty, mixed encryption, account_id routing [D-11] |
+| §6 Co-existence invariant | 1 | unencrypted update does not corrupt encrypted blob [BL B-33] |
+| §7 Encryption / BlobCodec | 10 | AES-256-GCM roundtrip, public derive_key, wrong passphrase, BlobCodec encode/decode, blob-too-short, truncated-body, full pipeline; KeyManager short/empty/whitespace passphrase |
+| §8 Stress | 1 | 1 001 notes [BL B-22] |
+| §9 Injection hardening | 7 | Null bytes (create/update × 2), oversized header, JSON type confusion, short ciphertext [OWASP A03, A08] |
+
+#### test_sprint1.py breakdown (68 unit/cli)
+
+| Section | Tests | Backlog ref |
+|---|---|---|
+| §1 WAL mode + locked-DB retry | 4 | [BL B-66] |
+| §2 PluginBase / PluginRegistry | 8 | [BL B-83] |
+| §3 Plugin auto-discovery | 8 | [BL B-37] — includes spec=None branch |
+| §4 CLI input-validation helpers | 7 | [BL B-52] |
+| §5 `--data-dir` validation | 4 | [BL B-36] |
+| §6 CLI `add` command | 8 | [BL B-19, B-23, B-32, B-52] |
+| §7 CLI `get` command | 5 | |
+| §8 CLI `list` command | 4 | |
+| §9 CLI `update` command | 5 | |
+| §10 CLI `delete` command | 4 | |
+| §11 Non-zero exit codes sweep | 4 | [BL B-23] |
+| §12 Passphrase confirmation | 3 | [BL B-32] |
+| §13 Alembic baseline migration | 4 | [BL B-65] |
+
+### Branch Coverage — Core Modules (2026-05-19)
+
+**Command:** `.venv\Scripts\python.exe -m pytest tests/test_core.py tests/test_sprint1.py -m "unit or stress" --cov=src/core --cov-branch`
+
+```
+Name                      Stmts   Miss Branch BrPart  Cover   Missing
+---------------------------------------------------------------------
+src\core\__init__.py          0      0      0      0   100%
+src\core\blob_codec.py       35      0      8      0   100%
+src\core\notes.py           151      0     42      1    99%   62->exit
+src\core\plugin_base.py      63      0     16      0   100%
+src\core\security.py         45      0      6      0   100%
+---------------------------------------------------------------------
+TOTAL                       294      0     72      1    99%
+```
+
+> The single uncovered branch (`notes.py 62->exit`) is a structural coverage artifact: the `for` loop in `_execute_with_retry` can never exit normally because every iteration either returns a value or raises an exception. It is genuinely unreachable without patching constants and is not a test gap.
+
+### Test Isolation (2026-05-19)
+
+`tests/conftest.py` `tmp_store` fixture was refactored to use per-test isolation:
+- Each test receives its own `DatabaseStore` backed by `.test_db/<test_name>/notes.db`.
+- The directory is wiped before each run (no stale-data leakage between runs).
+- Files are left on disk after the run for inspection with GUI tools (DB Browser for SQLite, SQLite Viewer VS Code extension).
+
+### Known Test Gaps (remaining)
+
+| Gap | Status | Closing Item |
+|---|---|---|
+| No BDD scenarios for injection-hardening paths | Open | Future sprint |
+| `src/cli.py` not covered by unit/core coverage sweep (CLI tests run via `CliRunner`) | Acknowledged | CLI integration tests in `test_sprint1.py` §6–§11 cover this path |
 
 ---
 
