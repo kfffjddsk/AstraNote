@@ -6,7 +6,7 @@
 
 AstraNotes is a secure, modular note-taking platform built in Python as a CLI-first application with a plugin ecosystem and a future GUI extension path.
 
-> **Status: Pre-implementation — Sprint Zero not yet started.** All planning, design, and architecture documents are complete. The commands shown below describe the planned CLI interface; no source code exists yet.
+> **Status: Sprint 1 complete.** Core CRUD, AES-256-GCM encryption, plugin system, WAL-mode SQLite persistence, and CLI are fully implemented and tested (140 tests, 99% branch coverage on core modules).
 
 ## Vision
 
@@ -29,26 +29,30 @@ pip install -r requirements.txt
 ### Usage
 
 ```bash
-python -m src.cli add --title "Meeting Notes" --content "Discuss project timeline"
-python -m src.cli list
-python -m src.cli get 1
-python -m src.cli update 1 --title "Updated Title"
-python -m src.cli delete 1
+# Add a plain note
+python -m src.cli --data-dir .astranotes add --title "Meeting Notes" --content "Discuss project timeline"
+
+# Add an encrypted note (will prompt for passphrase)
+python -m src.cli --data-dir .astranotes add --title "Secret" --content "Sensitive data" --encrypt
+
+# List all notes
+python -m src.cli --data-dir .astranotes list
+
+# Get a note by UUID
+python -m src.cli --data-dir .astranotes get <uuid>
+
+# Update a note
+python -m src.cli --data-dir .astranotes update <uuid> --title "Updated Title"
+
+# Delete a note
+python -m src.cli --data-dir .astranotes delete <uuid>
 ```
 
-### Encrypt a note
+Set `ASTRANOTES_DATA_DIR` in your environment to avoid passing `--data-dir` every time:
 
 ```bash
-python -m src.cli add --title "Secret" --content "Sensitive data" --encrypt yes
-```
-
-You will be prompted for a passphrase. Encrypted notes require the passphrase to view, update, or delete.
-
-### Search and export
-
-```bash
-python -m src.cli search "meeting"
-python -m src.cli export --format json --output notes.json
+$env:ASTRANOTES_DATA_DIR = ".astranotes"   # PowerShell
+export ASTRANOTES_DATA_DIR=.astranotes      # bash/zsh
 ```
 
 ---
@@ -58,16 +62,16 @@ python -m src.cli export --format json --output notes.json
 ### Project structure
 
 - `src/core/` — business logic
-  - `notes.py` — Note model, `NoteStore`, encrypted persistence
-  - `security.py` — `EncryptionEngine`, `KeyManager` (core, high-trust)
-  - `plugin_base.py` — plugin interface + registry
-  - `config.py` — settings storage and override config (future)
-  - `audit.py` — append-only audit log (future)
-- `src/cli.py` — command-line entrypoint
-- `plugins/` — plugin packages and extensions
-- `tests/` — unit and BDD test suites
-- `docs/` — requirements, architecture, and governance
-- `planning/` — user stories, requirements, backlog, sprint plans
+  - `notes.py` — `Note` dataclass, `DatabaseStore` (SQLite via SQLAlchemy, WAL mode, retry)
+  - `security.py` — `EncryptionEngine` (AES-256-GCM + PBKDF2), `KeyManager`
+  - `blob_codec.py` — length-prefixed binary blob encoder/decoder
+  - `plugin_base.py` — `PluginBase` ABC, `PluginRegistry`, `discover_plugins`
+- `src/cli.py` — Click CLI (`add`, `get`, `list`, `update`, `delete`)
+- `plugins/` — plugin packages (auto-discovered on startup)
+- `tests/` — unit, BDD, and CLI integration test suites
+- `alembic/` — database migrations
+- `docs/` — requirements, architecture, test evidence
+- `planning/` — user stories, backlog, sprint plans, traceability matrix
 
 ### Getting started
 
@@ -92,23 +96,30 @@ pip install -r requirements.txt
 #### 3. Run tests
 
 ```bash
+# All tests
 pytest -q
+
+# Unit tests only (fast)
+pytest -q -m unit
+
+# With branch coverage report
+pytest -m "unit or stress" --cov=src/core --cov-branch --cov-report=term-missing
 ```
 
 #### 4. Run CLI
 
 ```bash
-python -m src.cli add --title "Test" --content "Hello"
-python -m src.cli list
+python -m src.cli --data-dir .astranotes add --title "Test" --content "Hello"
+python -m src.cli --data-dir .astranotes list
 ```
 
 ### Functional milestones
 
-1. Note CRUD with encrypted storage
-2. Plugin discovery + hook system
-3. Override flow with explicit user consent
-4. Test coverage for security, reliability, and governance
-5. GUI-ready API layer (desktop or web front-end)
+1. ✅ Note CRUD with encrypted storage
+2. ✅ Plugin discovery + hook system
+3. Override flow with explicit user consent *(planned)*
+4. ✅ Test coverage for security, reliability, and governance (99% branch coverage on core)
+5. GUI-ready API layer (desktop or web front-end) *(planned)*
 
 ### Plugin development
 
@@ -153,18 +164,16 @@ Licensed under the [Apache License 2.0](LICENSE).
 |---------|---------|
 | click | BSD-3-Clause |
 | cryptography | Apache-2.0 / BSD-3-Clause |
-| pytest | MIT |
-| pytest-bdd | MIT |
-| python-docx | MIT |
-
-Future dependencies (not yet in `requirements.txt`):
-
-| Package | License |
-|---------|---------|
 | SQLAlchemy | MIT |
 | Alembic | MIT |
-| bcrypt | Apache-2.0 |
-| psycopg2-binary | LGPL |
+| pytest | MIT |
+| pytest-bdd | MIT |
+| pytest-cov | MIT |
+| jsonschema | MIT |
+| fastapi | MIT |
+| uvicorn | BSD-3-Clause |
+| PySide6 | LGPL-3.0 |
+| authlib | BSD-3-Clause |
 
 ## AI-Use Disclosure
 
