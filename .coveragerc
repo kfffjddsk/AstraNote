@@ -1,0 +1,10 @@
+[run]
+data_file = .coverage/.coverage
+branch = True
+source = src/core
+
+[html]
+directory = .coverage/html
+
+[report]
+show_missing = True

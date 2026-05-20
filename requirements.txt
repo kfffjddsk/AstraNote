@@ -1,5 +1,5 @@
 pytest
-python-docx
+pytest-cov
 cryptography
 click
 pytest-bdd

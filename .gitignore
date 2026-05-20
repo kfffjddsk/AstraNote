@@ -32,10 +32,11 @@ dist/
 *.egg-info/
 
 # pytest
-htmlcov/
-.coverage
 .cache
 .pytest_cache/
+
+# coverage (data file + HTML report — all under coverage/)
+.coverage/
 
 # secret files
 .env
@@ -49,6 +50,5 @@ local.env
 # AstraNotes user data directory
 .astranotes/
 
-# Alembic — keep migrations tracked; ignore only runtime artifacts
-alembic/__pycache__/
-alembic/versions/__pycache__/
+# Per-test debug databases (conftest.py tmp_store isolation)
+.test_db/
