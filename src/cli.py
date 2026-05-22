@@ -1,6 +1,7 @@
 """Click-based CLI for AstraNotes.
 
 Commands : add, get, list, update, delete
+           register, login, logout, delete-account
 Global   : --data-dir (validated: must exist or be creatable, must be writable)
            ASTRANOTES_DATA_DIR env var as fallback; default is ~/.astranotes
 
@@ -12,8 +13,13 @@ Design notes:
 - --data-dir is validated for existence, type, and write permission.  [BL B-36]
 - File-system / permission errors produce friendly messages.  [BL B-39]
 - Plugin auto-discovery runs at startup from the ``plugins/`` directory.  [BL B-37]
+- Auth credentials NEVER accepted as positional CLI arguments; always prompted
+  interactively with hide_input=True.  [BL B-57] [REQ R13.1]
+- DATABASE_URL is never stored in any config file; only from os.environ.
+  [BL B-64] [REQ R9.6]
 
-Refs: [BL B-19, B-23, B-32, B-36, B-37, B-39, B-52] [REQ R1, R2] [US-1, US-2]
+Refs: [BL B-19, B-23, B-32, B-36, B-37, B-39, B-41, B-46, B-52, B-57, B-59, B-61]
+      [REQ R1, R2, R13] [US-1, US-2, US-11]
 """
 from __future__ import annotations
 
@@ -24,8 +30,9 @@ from typing import Optional
 import click
 from cryptography.exceptions import InvalidTag
 
+from src.core.auth import AccountStore, AuthError, RateLimitError, SessionManager, validate_username
 from src.core.blob_codec import BlobCodec
-from src.core.notes import DatabaseStore, Note
+from src.core.notes import DatabaseStore, DiskFullError, Note
 from src.core.plugin_base import PluginRegistry, discover_plugins
 from src.core.security import KeyManager
 
@@ -190,12 +197,20 @@ def add_cmd(
         else:
             note = Note.create(title, content)
 
-        store.add(note)
+        # Associate with the active account if a valid session exists.  [BL B-47]
+        data_dir: Path = ctx.obj["data_dir"]
+        session_data = SessionManager.load(data_dir)
+        account_id = session_data["account_id"] if session_data else None
+
+        store.add(note, account_id=account_id)
         registry.call_hook("on_add", note)
         click.echo(note.id)
 
     except ValueError as exc:
         click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+    except DiskFullError as exc:
+        click.echo(f"Error: disk full — {exc}", err=True)
         sys.exit(1)
     except PermissionError as exc:
         click.echo(f"Error: permission denied — {exc}", err=True)
@@ -264,9 +279,14 @@ def get_cmd(ctx: click.Context, note_id: str, decrypt: bool) -> None:
 def list_cmd(ctx: click.Context) -> None:
     """List all notes (titles only)."""
     store: DatabaseStore = ctx.obj["store"]
+    data_dir: Path = ctx.obj["data_dir"]
+
+    # Load session to determine whether to show account sections.  [BL B-47]
+    session_data = SessionManager.load(data_dir)
+    account_id = session_data["account_id"] if session_data else None
 
     try:
-        _, local_notes = store.list()
+        account_notes, local_notes = store.list(account_id)
     except PermissionError as exc:
         click.echo(f"Error: permission denied — {exc}", err=True)
         sys.exit(1)
@@ -274,13 +294,31 @@ def list_cmd(ctx: click.Context) -> None:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
 
-    if not local_notes:
-        click.echo("No notes found.")
-        return
+    if account_id:
+        # Logged in: show two labelled sections.  [REQ R1.3] [BL B-47]
+        if account_notes:
+            click.echo("Your Notes:")
+            for note in account_notes:
+                enc_marker = " [enc]" if note.encrypted else ""
+                click.echo(f"  {note.id}  {note.title}{enc_marker}")
+        else:
+            click.echo("Your Notes: (none)")
 
-    for note in local_notes:
-        enc_marker = " [enc]" if note.encrypted else ""
-        click.echo(f"{note.id}  {note.title}{enc_marker}")
+        if local_notes:
+            click.echo("Local Open Notes:")
+            for note in local_notes:
+                enc_marker = " [enc]" if note.encrypted else ""
+                click.echo(f"  {note.id}  {note.title}{enc_marker}")
+        else:
+            click.echo("Local Open Notes: (none)")
+    else:
+        # Logged out: flat list (backward-compatible).
+        if not local_notes:
+            click.echo("No notes found.")
+            return
+        for note in local_notes:
+            enc_marker = " [enc]" if note.encrypted else ""
+            click.echo(f"{note.id}  {note.title}{enc_marker}")
 
 
 # ---------------------------------------------------------------------------
@@ -359,6 +397,9 @@ def update_cmd(
     except ValueError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
+    except DiskFullError as exc:
+        click.echo(f"Error: disk full — {exc}", err=True)
+        sys.exit(1)
     except PermissionError as exc:
         click.echo(f"Error: permission denied — {exc}", err=True)
         sys.exit(1)
@@ -417,6 +458,169 @@ def delete_cmd(ctx: click.Context, note_id: str) -> None:
     except OSError as exc:
         click.echo(f"Error: {exc}", err=True)
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# register  [BL B-45, B-57, B-60] [REQ R13.1–R13.4]
+# ---------------------------------------------------------------------------
+
+
+@cli.command("register")
+@click.pass_context
+def register_cmd(ctx: click.Context) -> None:
+    """Create a new local account (optional — app works without one)."""
+    data_dir: Path = ctx.obj["data_dir"]
+    account_store = AccountStore(data_dir)
+
+    # Credentials always prompted interactively; NEVER accepted as args.  [BL B-57]
+    username = click.prompt("Username")
+    try:
+        validate_username(username)
+    except ValueError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    password = click.prompt("Password", hide_input=True, confirmation_prompt=True)
+
+    try:
+        account_id = account_store.register(username, password)
+        click.echo(f"Account created: {username} ({account_id})")
+    except ValueError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# login  [BL B-46, B-57, B-58, B-59] [REQ R13.5–R13.8]
+# ---------------------------------------------------------------------------
+
+
+@cli.command("login")
+@click.pass_context
+def login_cmd(ctx: click.Context) -> None:
+    """Log in to a local account and create a session token (24 h)."""
+    data_dir: Path = ctx.obj["data_dir"]
+    store: DatabaseStore = ctx.obj["store"]
+    account_store = AccountStore(data_dir)
+
+    username = click.prompt("Username")
+    password = click.prompt("Password", hide_input=True)  # [BL B-57]
+
+    try:
+        account = account_store.authenticate(username, password)
+    except RateLimitError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+    except AuthError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    SessionManager.create(data_dir, account["account_id"], account["username"])
+    click.echo(f"Logged in as {account['username']}.")
+
+    # --- First-login anonymous note association prompt  [BL B-41] [REQ R12.3] ---
+    _, anon_notes = store.list(account_id=None)
+    if anon_notes:
+        click.echo(
+            f"\nYou have {len(anon_notes)} local note(s) with no account.\n"
+            "Associate them with your account?"
+        )
+        choice = click.prompt(
+            "[yes / no / ask]",
+            default="no",
+            type=click.Choice(["yes", "no", "ask"], case_sensitive=False),
+        )
+
+        if choice == "yes":
+            count = store.associate_anonymous_notes(account["account_id"])
+            click.echo(f"Associated {count} note(s) with your account.")
+        elif choice == "ask":
+            associated = 0
+            for note in anon_notes:
+                enc_marker = " [enc]" if note.encrypted else ""
+                if click.confirm(f"  Associate '{note.title}{enc_marker}'?", default=False):
+                    store.set_note_account_id(note.id, account["account_id"])
+                    associated += 1
+            click.echo(f"Associated {associated} note(s) with your account.")
+        else:
+            click.echo("Local notes left unchanged.")
+
+
+# ---------------------------------------------------------------------------
+# logout  [BL B-46] [REQ R13.9]
+# ---------------------------------------------------------------------------
+
+
+@cli.command("logout")
+@click.pass_context
+def logout_cmd(ctx: click.Context) -> None:
+    """End the current session (local notes remain accessible)."""
+    data_dir: Path = ctx.obj["data_dir"]
+    removed = SessionManager.delete(data_dir)
+    if removed:
+        click.echo("Logged out.")
+    else:
+        click.echo("No active session.")
+
+
+# ---------------------------------------------------------------------------
+# delete-account  [BL B-61, B-81] [REQ R13.12]
+# ---------------------------------------------------------------------------
+
+
+@cli.command("delete-account")
+@click.pass_context
+def delete_account_cmd(ctx: click.Context) -> None:
+    """Permanently delete account; local notes kept but disassociated."""
+    data_dir: Path = ctx.obj["data_dir"]
+    store: DatabaseStore = ctx.obj["store"]
+
+    session_data = SessionManager.load(data_dir)
+    if not session_data:
+        click.echo("Error: not logged in.", err=True)
+        sys.exit(1)
+
+    account_id = session_data["account_id"]
+    username = session_data["username"]
+
+    click.echo(
+        f"This will permanently delete account '{username}'.\n"
+        "Local notes will be kept but disassociated from your account.\n"
+        "Any cloud copies will also be deleted."
+    )
+
+    # Require password + typed confirmation.  [REQ R13.12]
+    password = click.prompt("Confirm your password", hide_input=True)
+    account_store = AccountStore(data_dir)
+    try:
+        account_store.authenticate(username, password)
+    except (AuthError, RateLimitError) as exc:
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+
+    confirmation = click.prompt('Type "CONFIRM DELETE ACCOUNT" to proceed')
+    if confirmation != "CONFIRM DELETE ACCOUNT":
+        click.echo("Aborted — confirmation text did not match.")
+        sys.exit(1)
+
+    # Detach all notes from this account.  [REQ R13.12]
+    affected = store.disassociate_account(account_id)
+
+    # Delete account record.
+    account_store.delete(account_id)
+
+    # Delete session file.
+    SessionManager.delete(data_dir)
+
+    # Delete per-user audit log if it exists.  [BL B-81]
+    audit_log = data_dir / "audit.log"
+    if audit_log.exists():
+        audit_log.unlink()
+
+    click.echo(
+        f"Account '{username}' deleted. "
+        f"{affected} note(s) are now anonymous local notes."
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -12,13 +12,19 @@ Key design decisions:
 - Input validation (empty title/content) is enforced in Note.create(). [REQ R1.6]
 - WAL journal mode is enabled on every new connection for read-concurrency. [BL B-66]
 - OperationalError "database is locked" is retried with exponential backoff. [BL B-66]
+- Hybrid storage: encrypted notes >5 MB are written to <data-dir>/files/ on the
+  filesystem; DB stores payload_location='filesystem'. [BL B-49] [REQ R14.8]
+- Disk-full (ENOSPC) errors caught at both DB and filesystem layers. [BL B-67]
+- Filesystem payloads cleaned up on note delete. [BL B-68]
 
-Refs: [BL B-01-B-14, B-31, B-42, B-51, B-66, B-74] [REQ R1, R14] [US-1, US-2]
+Refs: [BL B-01-B-14, B-31, B-42, B-49, B-51, B-66, B-67, B-68, B-74]
+      [REQ R1, R14] [US-1, US-2]
 design §3.1, §4.1, §4.2, §5.2
 """
 from __future__ import annotations
 
 import dataclasses
+import errno
 import logging
 import time
 import uuid
@@ -32,6 +38,30 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Hybrid storage threshold  [BL B-49] [REQ R14.8]
+# ---------------------------------------------------------------------------
+
+# Encrypted notes with blobs larger than this are stored on the filesystem
+# rather than inline in the database.  Unencrypted notes are always inline
+# (no plaintext files on disk).  [REQ R14.8]
+_FILESYSTEM_THRESHOLD_BYTES: int = 5 * 1024 * 1024   # 5 MiB
+_PAYLOAD_DIR = "files"                               # flat under data_dir [BL B-77]
+
+
+# ---------------------------------------------------------------------------
+# Disk-full error  [BL B-67] [REQ R3.8]
+# ---------------------------------------------------------------------------
+
+
+class DiskFullError(OSError):
+    """Raised when a write operation fails because the filesystem is full.
+
+    Covers both SQLite ENOSPC writes and direct filesystem payload writes.
+    [BL B-67] [REQ R3.8, R14.12]
+    """
+
 
 # ---------------------------------------------------------------------------
 # WAL mode + locked-DB retry  [BL B-66]
@@ -57,13 +87,25 @@ def _execute_with_retry(fn):
 
     Uses exponential backoff starting at _RETRY_BASE_DELAY seconds.  All other
     exceptions propagate immediately.  [BL B-66]
+
+    Disk-full SQLite errors (OperationalError: 'disk I/O error' or 'no space')
+    are converted to :class:`DiskFullError`.  [BL B-67]
     """
     delay = _RETRY_BASE_DELAY
-    for attempt in range(1, _RETRY_ATTEMPTS + 1):
+    for attempt in range(1, _RETRY_ATTEMPTS + 1):  # pragma: no branch
         try:
             return fn()
         except OperationalError as exc:
-            if "database is locked" not in str(exc).lower() or attempt == _RETRY_ATTEMPTS:
+            msg = str(exc).lower()
+            if "database is locked" not in msg:
+                # Detect SQLite disk-full condition and re-raise as DiskFullError.
+                if "disk i/o error" in msg or "no space" in msg or "disk full" in msg:
+                    raise DiskFullError(
+                        errno.ENOSPC,
+                        "Database write failed: no space left on device.",
+                    ) from exc
+                raise
+            if attempt == _RETRY_ATTEMPTS:
                 raise
             logger.warning(
                 "SQLite database is locked (attempt %d/%d); retrying in %.2fs.",
@@ -230,6 +272,9 @@ class DatabaseStore:
         # before we create directories or embed the path in a connection URL.
         data_dir = Path(data_dir).resolve()
         data_dir.mkdir(parents=True, exist_ok=True)
+        self._data_dir = data_dir                   # used by hybrid-storage methods
+        # Create the flat filesystem-payload directory.  [BL B-77] [REQ R14.13]
+        (data_dir / _PAYLOAD_DIR).mkdir(exist_ok=True)
         db_path = data_dir / "notes.db"
         # Use URL.create() instead of f-string to prevent connection-URL injection
         # from paths that contain SQLAlchemy URL special characters.
@@ -244,22 +289,53 @@ class DatabaseStore:
     # Add
     # ------------------------------------------------------------------
 
-    def add(self, note: Note) -> str:
+    def add(self, note: Note, *, account_id: Optional[str] = None) -> str:
         """Persist *note* and return its id.
 
         For encrypted notes, ``note.blob`` is stored in ``encrypted_blob`` and
         ``content`` is left NULL.  For unencrypted notes, ``note.content`` is
         stored in the ``content`` column.  [REQ R14.6]
+
+        Encrypted notes whose blob exceeds ``_FILESYSTEM_THRESHOLD_BYTES`` (5 MiB)
+        are written to ``<data-dir>/files/<note_id>.bin`` and the DB row records
+        ``payload_location = 'filesystem'``.  Unencrypted notes are always inline;
+        no plaintext files are written to disk.  [BL B-49] [REQ R14.8]
+
+        Raises :class:`DiskFullError` if the filesystem or database is full.
+        [BL B-67] [REQ R3.8]
+
+        Args:
+            note:       Note to persist.
+            account_id: Associate with this account UUID (``None`` = anonymous).
         """
+        payload_location = "inline"
+        blob_for_db: Optional[bytes] = note.blob if note.encrypted else None
+
+        # --- Hybrid storage: write large encrypted blobs to filesystem ---
+        if note.encrypted and note.blob and len(note.blob) > _FILESYSTEM_THRESHOLD_BYTES:
+            payload_location = "filesystem"
+            file_path = self._data_dir / _PAYLOAD_DIR / f"{note.id}.bin"
+            try:
+                file_path.write_bytes(note.blob)
+            except OSError as exc:
+                if getattr(exc, "errno", None) == errno.ENOSPC:
+                    raise DiskFullError(
+                        errno.ENOSPC,
+                        f"Cannot write payload for note {note.id!r}: no space left on device.",
+                    ) from exc
+                raise
+            blob_for_db = None  # payload is on disk; DB only stores location marker
+
         def _do() -> str:
             with self._Session() as session:
                 row = _NoteRow(
                     note_id=note.id,
-                    account_id=None,
+                    account_id=account_id,
                     title=note.title,
                     content=note.content if not note.encrypted else None,
-                    encrypted_blob=note.blob if note.encrypted else None,
+                    encrypted_blob=blob_for_db,
                     is_encrypted=note.encrypted,
+                    payload_location=payload_location,
                     created_at=note.created_at,
                     modified_at=note.modified_at,
                 )
@@ -278,6 +354,8 @@ class DatabaseStore:
 
         For encrypted notes the returned Note has ``content=""`` and ``blob``
         populated — the caller decrypts the blob with BlobCodec if it has a key.
+        For notes with ``payload_location='filesystem'`` the blob is loaded from
+        ``<data-dir>/files/<note_id>.bin`` before returning.  [BL B-49]
         [BL B-74] [D-07] [D-11]
         """
         def _do() -> Optional[Note]:
@@ -285,7 +363,19 @@ class DatabaseStore:
                 row = session.get(_NoteRow, note_id)
                 if row is None:
                     return None
-                return _row_to_note(row)
+                note = _row_to_note(row)
+                # Load filesystem payload if the blob lives outside the DB.
+                if row.is_encrypted and row.payload_location == "filesystem":
+                    file_path = self._data_dir / _PAYLOAD_DIR / f"{note_id}.bin"
+                    try:
+                        note.blob = file_path.read_bytes()
+                    except FileNotFoundError:
+                        logger.error(
+                            "Filesystem payload missing for note %s at %s.",
+                            note_id, file_path,
+                        )
+                        # blob remains None; caller must handle gracefully
+                return note
 
         return _execute_with_retry(_do)
 
@@ -336,16 +426,32 @@ class DatabaseStore:
 
         Raises :class:`KeyError` if not found.  Other notes — including
         co-stored encrypted ones — are never affected.  [REQ R2.12] [BL B-33]
+
+        If the note has ``payload_location='filesystem'``, the corresponding
+        file under ``<data-dir>/files/`` is deleted after the DB row is removed.
+        Missing files are silently ignored (idempotent clean-up).  [BL B-68]
         """
+        payload_location: Optional[str] = None
+
         def _do() -> None:
+            nonlocal payload_location
             with self._Session() as session:
                 row = session.get(_NoteRow, note_id)
                 if row is None:
                     raise KeyError(f"Note {note_id!r} not found.")
+                payload_location = row.payload_location
                 session.delete(row)
                 session.commit()
 
         _execute_with_retry(_do)
+
+        # Clean up orphaned filesystem payload after DB row is gone.  [BL B-68]
+        if payload_location == "filesystem":
+            file_path = self._data_dir / _PAYLOAD_DIR / f"{note_id}.bin"
+            try:
+                file_path.unlink()
+            except FileNotFoundError:
+                pass
 
     # ------------------------------------------------------------------
     # List
@@ -358,7 +464,8 @@ class DatabaseStore:
 
         - ``account_notes``: notes whose ``account_id`` matches the argument.
           Empty when ``account_id`` is ``None`` (no active session).
-        - ``local_notes``: anonymous notes (``account_id IS NULL``).
+        - ``local_notes``: notes with ``account_id IS NULL`` (anonymous).
+        - Notes belonging to *other* accounts are never returned.  [REQ R1.3]
 
         Reads only the plaintext ``title`` / ``format`` columns; never parses
         blobs.  [REQ R1.3] [BL B-74] [D-11]
@@ -370,13 +477,83 @@ class DatabaseStore:
                 local_notes: list[Note] = []
                 for row in rows:
                     note = _row_to_note(row, listing_mode=True)
-                    if account_id and row.account_id == account_id:
+                    if account_id is not None and row.account_id == account_id:
                         account_notes.append(note)
-                    else:
+                    elif row.account_id is None:
                         local_notes.append(note)
+                    # else: belongs to a different account — omit
             return account_notes, local_notes
 
         return _execute_with_retry(_do)
+
+    # ------------------------------------------------------------------
+    # disassociate_account  [BL B-61] [REQ R13.12]
+    # ------------------------------------------------------------------
+
+    def disassociate_account(self, account_id: str) -> int:
+        """Set ``account_id = NULL`` on all notes belonging to *account_id*.
+
+        Called during ``delete-account`` to detach notes from the account
+        while keeping them on the device.  Returns the count of rows updated.
+        [BL B-61] [REQ R13.12]
+        """
+        def _do() -> int:
+            with self._Session() as session:
+                rows = (
+                    session.query(_NoteRow)
+                    .filter(_NoteRow.account_id == account_id)
+                    .all()
+                )
+                for row in rows:
+                    row.account_id = None
+                session.commit()
+                return len(rows)
+
+        return _execute_with_retry(_do)
+
+    # ------------------------------------------------------------------
+    # associate_anonymous_notes  [BL B-41] [REQ R12.3]
+    # ------------------------------------------------------------------
+
+    def associate_anonymous_notes(self, account_id: str) -> int:
+        """Set ``account_id`` on all currently-anonymous notes (``account_id IS NULL``).
+
+        Called after the first-login prompt when the user answers ``yes``.
+        Returns the count of rows updated.  [BL B-41] [REQ R12.3]
+        """
+        def _do() -> int:
+            with self._Session() as session:
+                rows = (
+                    session.query(_NoteRow)
+                    .filter(_NoteRow.account_id.is_(None))
+                    .all()
+                )
+                for row in rows:
+                    row.account_id = account_id
+                session.commit()
+                return len(rows)
+
+        return _execute_with_retry(_do)
+
+    # ------------------------------------------------------------------
+    # set_note_account_id  [BL B-41] [REQ R12.3]
+    # ------------------------------------------------------------------
+
+    def set_note_account_id(self, note_id: str, account_id: Optional[str]) -> None:
+        """Set ``account_id`` on a single note by *note_id*.
+
+        Used during the per-note first-login association prompt (``ask`` choice).
+        Raises :class:`KeyError` if *note_id* is not found.  [BL B-41]
+        """
+        def _do() -> None:
+            with self._Session() as session:
+                row = session.get(_NoteRow, note_id)
+                if row is None:
+                    raise KeyError(f"Note {note_id!r} not found.")
+                row.account_id = account_id
+                session.commit()
+
+        _execute_with_retry(_do)
 
 
 # ---------------------------------------------------------------------------

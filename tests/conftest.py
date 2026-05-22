@@ -41,6 +41,21 @@ _TEST_ITERATIONS = 1_000
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _wipe_test_db_before_session() -> None:
+    """Remove the entire .test_db/ tree at the start of each test session.
+
+    Individual test directories are also wiped inside ``_safe_test_dir``
+    before each test, but this session-level fixture guarantees a fully
+    clean slate on every ``pytest`` run — no stale databases from a
+    previous session can survive.
+    """
+    test_db_root = Path(".test_db")
+    if test_db_root.exists():
+        shutil.rmtree(test_db_root)
+    test_db_root.mkdir(parents=True, exist_ok=True)
+
+
 def _safe_test_dir(request: pytest.FixtureRequest) -> Path:
     """Return a per-test path under .test_db/, wiped clean before the test."""
     safe_name = re.sub(r"[^\w\-]", "_", request.node.name)[:80]
