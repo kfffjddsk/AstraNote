@@ -1,7 +1,7 @@
 # AstraNotes — Product Requirements Document
 
-**Version:** 1.2  `[LOG 05-04]`  
-**Date:** May 4, 2026  
+**Version:** 1.3  `[LOG 05-21]`  
+**Date:** May 21, 2026  
 **Status:** Draft — under review  
 **Owner:** Human team member  
 **AI Partner:** Astra (GitHub Copilot)

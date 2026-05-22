@@ -6,7 +6,7 @@
 
 AstraNotes is a secure, modular note-taking platform built in Python as a CLI-first application with a plugin ecosystem and a future GUI extension path.
 
-> **Status: Sprint 1 complete.** Core CRUD, AES-256-GCM encryption, plugin system, WAL-mode SQLite persistence, and CLI are fully implemented and tested (140 tests, 99% branch coverage on core modules).
+> **Status: Sprint 2 complete.** Core CRUD, AES-256-GCM encryption, plugin system, WAL-mode SQLite persistence, CLI, opt-in account layer, session management, auth rate-limiting, hybrid filesystem storage, and disk-full handling are fully implemented and tested (246 tests, 100% branch coverage on all core modules).
 
 ## Vision
 
@@ -62,11 +62,12 @@ export ASTRANOTES_DATA_DIR=.astranotes      # bash/zsh
 ### Project structure
 
 - `src/core/` — business logic
-  - `notes.py` — `Note` dataclass, `DatabaseStore` (SQLite via SQLAlchemy, WAL mode, retry)
+  - `notes.py` — `Note` dataclass, `DatabaseStore` (SQLite via SQLAlchemy, WAL mode, retry, hybrid filesystem storage)
+  - `auth.py` — `AccountStore` (bcrypt registration/auth, rate-limiting), `SessionManager` (24h token file)
   - `security.py` — `EncryptionEngine` (AES-256-GCM + PBKDF2), `KeyManager`
   - `blob_codec.py` — length-prefixed binary blob encoder/decoder
   - `plugin_base.py` — `PluginBase` ABC, `PluginRegistry`, `discover_plugins`
-- `src/cli.py` — Click CLI (`add`, `get`, `list`, `update`, `delete`)
+- `src/cli.py` — Click CLI (`add`, `get`, `list`, `update`, `delete`, `register`, `login`, `logout`, `delete-account`)
 - `plugins/` — plugin packages (auto-discovered on startup)
 - `tests/` — unit, BDD, and CLI integration test suites
 - `alembic/` — database migrations
@@ -117,8 +118,10 @@ python -m src.cli --data-dir .astranotes list
 
 1. ✅ Note CRUD with encrypted storage
 2. ✅ Plugin discovery + hook system
-3. Override flow with explicit user consent *(planned)*
-4. ✅ Test coverage for security, reliability, and governance (99% branch coverage on core)
+3. ✅ Opt-in account layer — registration, login/logout, session management, rate-limiting
+4. ✅ Hybrid filesystem storage for large encrypted payloads (≥5 MB threshold)
+5. Override flow with explicit user consent *(planned)*
+4. ✅ Test coverage for security, reliability, and governance (100% branch coverage on all core modules)
 5. GUI-ready API layer (desktop or web front-end) *(planned)*
 
 ### Plugin development

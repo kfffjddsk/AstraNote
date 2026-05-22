@@ -1,8 +1,8 @@
 # AstraNotes — Traceability Metrics (v2.1)
 
-**Version:** 2.4  
-**Date:** May 20, 2026  
-**Status:** Updated — Sprint 1 complete, all implementations verified  
+**Version:** 2.5  
+**Date:** May 21, 2026  
+**Status:** Updated — Sprint 2 complete, all Sprint 2 implementations verified  
 **Owner:** Human team member  
 **AI Partner:** Astra (GitHub Copilot)
 
@@ -44,6 +44,7 @@
 | `Unit:TKM` | Unit test class `TestKeyManager` in `tests/test_core.py` |
 | `Unit:stress` | `test_store_stress_1001_notes` in `tests/test_core.py` |
 | `Sprint1:S1` | `tests/test_sprint1.py` — WAL/retry, plugin, CLI, Alembic tests |
+| `Sprint2:S2` | `tests/test_sprint2.py` — AccountStore, auth, session, hybrid storage, CLI auth commands, first-login prompt, coverage-gap tests |
 | `(planned)` | Class/command exists only as a design stub; no production code |
 
 ### Status Definitions
@@ -113,7 +114,7 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 | FR-30 | **(R3.4)** Preserve encrypted records when loaded without a key | US-3 · B-16 | `DatabaseStore.list()` | `Unit:TNS.test_load_encrypted_note_without_key_hides_title_and_content` | — | Fully Traced | — |
 | FR-31 | **(R3.5)** Handle 1000+ notes within 0.5 s without crashes | US-3 · B-22 | `DatabaseStore` | `Unit:stress` (1001 notes add/reload/delete) | — | Fully Traced | — |
 | FR-33 | **(R3.7)** File write errors → catch and display actionable message | US-3 · B-39 | `cli.py` (`PermissionError`, `OSError` catch in `_validate_data_dir` + command handlers) | `Sprint1:S1` §5 (`test_cli_data_dir_not_writable_exits_nonzero`) | — | Fully Traced | B-39 done in Sprint 1; `PermissionError` / `OSError` caught and printed with actionable message before `sys.exit(1)` |
-| FR-34 | **(R3.8)** Disk-full (`ENOSPC`) caught and reported; no silent data loss | US-3 · B-67 | `DatabaseStore` (planned guard) | (none) | — | Weakly Traced | No `ENOSPC` / `OperationalError` handling designed; B-67 in backlog |
+| FR-34 | **(R3.8)** Disk-full (`ENOSPC`) caught and reported; no silent data loss | US-3 · B-67 | `DatabaseStore._execute_with_retry()` catches `OperationalError` "disk i/o error"/"disk full"/"no space"; `DiskFullError` raised; `cli.py` catches `DiskFullError` → non-zero exit | `Sprint2:S2 §16` (`test_add_large_encrypted_enospc_raises_disk_full_error`); `Sprint2:S2 §18` (`test_sqlite_disk_io_error_raises_disk_full_error`) | — | Fully Traced | B-67 done Sprint 2: `DiskFullError` raised at both SQLite layer and filesystem write; all CLI commands catch it |
 
 ---
 
@@ -232,13 +233,13 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 
 | ID | Requirement (Source) | US / Backlog | Class/Object Evidence | Use Case/Activity Evidence | Deployment Evidence | Status | Gap Note |
 |---|---|---|---|---|---|---|---|
-| FR-76 | **(R12.1)** SQLite always on; no first-launch mode selection; all CRUD works without login; offline CRUD always available — local SQLite is the persistent store, not a cache `[LOG 05-04]` | US-10 · B-42 | `DatabaseStore` SQLite (planned) | (none) | ADR-02 (updated) | Weakly Traced | SQLite always-on design in ADR-02; no startup code yet |
-| FR-77 | **(R12.2)** `account_id` nullable FK on every note (`NULL` = anonymous/device-local) `[LOG 05-04]` | US-10/US-12 · B-42/B-96 | `DatabaseStore`, `notes` schema (planned) | (none) | DM-2 | Weakly Traced | Schema updated in DM-2; no ORM model yet |
-| FR-78 | **(R12.3)** First-login anonymous note association prompt: Yes / No / Ask me for each `[LOG 05-04]` | US-10 · B-41 | `cli.login()` (planned) | (none) | — | Weakly Traced | No prompt flow or one-time flag designed yet |
-| FR-79 | **(R12.4)** After login, new notes auto-get `account_id`; `--local` flag keeps them anonymous `[LOG 05-04]` | US-10 · B-42 | `cli.add()` (planned) | (none) | — | Weakly Traced | No `--local` flag or session-based default designed |
+| FR-76 | **(R12.1)** SQLite always on; no first-launch mode selection; all CRUD works without login; offline CRUD always available — local SQLite is the persistent store, not a cache `[LOG 05-04]` | US-10 · B-42 | `DatabaseStore` SQLite — `__init__` calls `create_all()` unconditionally; no mode-selection code path | `Sprint2:S2 §4` (account-scoping tests run without any login step) | ADR-02 | Fully Traced | B-42 done Sprint 0; account layer additive on top; no startup gating code |
+| FR-77 | **(R12.2)** `account_id` nullable FK on every note (`NULL` = anonymous/device-local) `[LOG 05-04]` | US-10/US-12 · B-42/B-96 | `_NoteRow.account_id` nullable `Text` column; `DatabaseStore.add(account_id=None)` | `Sprint2:S2 §4` (`test_add_with_account_id_stores_account_id`, `test_add_without_account_id_stores_null`) | DM-2 | Fully Traced | B-42 done Sprint 0 (column exists); Sprint 2 wires account_id through `DatabaseStore.add()` |
+| FR-78 | **(R12.3)** First-login anonymous note association prompt: Yes / No / Ask me for each `[LOG 05-04]` | US-10 · B-41 | `cli.login_cmd()` — prompts [yes/no/ask] after authenticating when anonymous notes exist; `DatabaseStore.associate_anonymous_notes()` and `set_note_account_id()` | `Sprint2:S2 §12` (`TestFirstLoginPrompt`) | — | Fully Traced | B-41 done Sprint 2: three-option prompt with per-note confirmation flow in `ask` mode |
+| FR-79 | **(R12.4)** After login, new notes auto-get `account_id`; `--local` flag keeps them anonymous `[LOG 05-04]` | US-10 · B-42 | `cli.add_cmd()` reads `SessionManager.load()` and passes `account_id` to `DatabaseStore.add()` | `Sprint2:S2 §11` (`test_add_while_logged_in_creates_account_note`) | — | Partially Traced | Auto-assignment implemented; `--local` flag to keep a note anonymous deferred (not yet in `add_cmd`) |
 | FR-80 | **(R12.5)** `sync push`/`sync pull` manual commands; requires account session; background sync opt-in `[LOG 05-04]` | US-10/US-14 · B-90 | `SyncRouter` (planned) | (none) | ADR-11 (decided) | Weakly Traced | Sync command design pending; ADR-11 decided |
 | FR-81 | **(R12.6)** Multiple accounts per device; note list scoped by active `account_id` `[LOG 05-04]` | US-10 · B-47 | `AuthManager`, `DatabaseStore` (planned) | (none) | DM-2 | Weakly Traced | Multi-account scoping not designed |
-| FR-116 | **(R12.7)** Logout detaches session; local notes (including account-associated) remain accessible `[LOG 05-04]` | US-10/US-11 · B-46 | `AuthManager.logout()` (planned) | (none) | DM-4 | Weakly Traced | Session-detach-only behavior not designed |
+| FR-116 | **(R12.7)** Logout detaches session; local notes (including account-associated) remain accessible `[LOG 05-04]` | US-10/US-11 · B-46 | `SessionManager.delete()`, `cli.logout_cmd()` — deletes `.session` file; notes untouched | `Sprint2:S2 §9` (`TestLogoutCommand`) | DM-4 | Fully Traced | B-46 done Sprint 2: logout is a pure session-file deletion; no note mutation |
 
 ---
 
@@ -246,18 +247,18 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 
 | ID | Requirement (Source) | US / Backlog | Class/Object Evidence | Use Case/Activity Evidence | Deployment Evidence | Status | Gap Note |
 |---|---|---|---|---|---|---|---|
-| FR-82 | **(R13.1)** `register`: interactive prompts; credentials never as positional args | US-11 · B-45/B-57 | `AuthManager.register()` (planned) | (none) | ADR-06 | Weakly Traced | ADR-06 documents the decision; no implementation |
-| FR-83 | **(R13.2)** Password stored as bcrypt hash; never logged in plaintext | US-11 · B-45 | `AuthManager.register()` (planned) | (none) | DM-2 (accounts table) `[LOG 05-04]` | Weakly Traced | bcrypt referenced in schema; no hash code written |
-| FR-84 | **(R13.3)** Username: 3–32 chars, alphanumeric + `_`, case-insensitive uniqueness | US-11 · B-60 | `AuthManager.register()` (planned) | (none) | DM-2 | Weakly Traced | Validation rules in `user-stories.md`; no validation code |
-| FR-85 | **(R13.4)** Password minimum 8 characters | US-11 · B-45 | `AuthManager.register()` (planned) | (none) | — | Weakly Traced | — |
-| FR-86 | **(R13.5)** `login` → session token file; permissions restricted to owner + admin | US-11 · B-46/B-59/B-75 | `AuthManager.login()` (planned) | (none) | DM-4; ADR-06 | Weakly Traced | Session token format defined (§5.4); no implementation |
-| FR-87 | **(R13.6)** Wrong credentials → error, no session created | US-11 · B-46 | `AuthManager.login()` (planned) | (none) | — | Weakly Traced | — |
-| FR-88 | **(R13.7)** Rate limiting: 5 failures → 5-min lockout per username | US-11 · B-58 | `AuthManager`, `accounts` table (planned) `[LOG 05-04]` | (none) | DM-2; ADR-07 | Weakly Traced | ADR-07 documents decision; `failed_attempts` col in schema; no code |
-| FR-89 | **(R13.8)** Session tokens expire after 24 h. Expired session blocks sync/account ops only; local CRUD unaffected `[LOG 05-04]` | US-11 · B-59 | `AuthManager.verify_session()` (planned) | (none) | DM-4 | Weakly Traced | `expires_at` in session token format; no verification code |
-| FR-90 | **(R13.9)** `logout` detaches session; local notes (including account-associated) remain accessible `[LOG 05-04]` | US-11 · B-46 | `AuthManager.logout()` (planned) | (none) | DM-4 | Weakly Traced | Detach-only behavior not designed; old full-delete behavior removed |
-| FR-91 | **(R13.10)** Logged-in: show active account's notes + anonymous. Logged-out: show only anonymous `[LOG 05-04]` | US-11 · B-47 | `DatabaseStore.list()` filter (planned) | (none) | DM-2 | Weakly Traced | Query filter logic not designed |
-| FR-92 | **(R13.11)** Queries scoped by `account_id`; no cross-account data access `[LOG 05-04]` | US-11 · B-47 | `DatabaseStore` account_id param (planned) | (none) | DM-2 | Weakly Traced | `account_id` FK in schema; ORM query scoping not designed |
-| FR-93 | **(R13.12)** `delete-account`: set `account_id = NULL` on local notes; delete server record; warn cloud copies deleted `[LOG 05-04]` | US-11 · B-61 | `AuthManager.delete_account()` (planned) | (none) | ADR-09 (updated) | Weakly Traced | Detach-not-purge behavior per updated ADR-09; no code |
+| FR-82 | **(R13.1)** `register`: interactive prompts; credentials never as positional args | US-11 · B-45/B-57 | `AccountStore.register()`, `cli.register_cmd()` — username + password prompted interactively with `hide_input=True`; no CLI args accepted | `Sprint2:S2 §1` (`TestAccountStore`), `Sprint2:S2 §7` (`TestRegisterCommand`) | ADR-06 | Fully Traced | B-45, B-57 done Sprint 2 |
+| FR-83 | **(R13.2)** Password stored as bcrypt hash; never logged in plaintext | US-11 · B-45 | `AccountStore.register()` — bcrypt 5.0.0; `bcrypt.hashpw(password.encode(), bcrypt.gensalt())`; hash stored as UTF-8 text column; plaintext never stored or logged | `Sprint2:S2 §1` (`test_register_password_hash_not_plaintext`) | DM-2 | Fully Traced | B-45 done Sprint 2: bcrypt hash confirmed; `$2b$` marker verified in test |
+| FR-84 | **(R13.3)** Username: 3–32 chars, alphanumeric + `_`, case-insensitive uniqueness | US-11 · B-60 | `validate_username()` regex `r"^[a-zA-Z0-9_]{3,32}\Z"`; `AccountStore.register()` normalises to lowercase; `UniqueConstraint` on `username` column | `Sprint2:S2 §1` (username length/char/duplicate tests) | DM-2 | Fully Traced | B-60 done Sprint 2: `\Z` anchor prevents trailing-newline bypass |
+| FR-85 | **(R13.4)** Password minimum 8 characters | US-11 · B-45 | `AccountStore.register()` checks `len(password) < 8` before hashing | `Sprint2:S2 §1` (`test_register_short_password_raises`) | — | Fully Traced | B-45 done Sprint 2 |
+| FR-86 | **(R13.5)** `login` → session token file; permissions restricted to owner + admin | US-11 · B-46/B-59/B-75 | `SessionManager.create()` writes `{account_id, username, created_at, expires_at}` JSON to `<data-dir>/.session`; `os.chmod(path, 0o600)` (best-effort POSIX) | `Sprint2:S2 §3` (`TestSessionManager`), `Sprint2:S2 §8` (`TestLoginCommand`) | DM-4; ADR-06 | Fully Traced | B-46, B-59, B-75 done Sprint 2; Windows: chmod is best-effort (documented) |
+| FR-87 | **(R13.6)** Wrong credentials → error, no session created | US-11 · B-46 | `AccountStore.authenticate()` raises `AuthError`; `cli.login_cmd()` exits non-zero before calling `SessionManager.create()` | `Sprint2:S2 §2` (`test_authenticate_wrong_password_raises`, `test_authenticate_unknown_user_raises`) | — | Fully Traced | B-46 done Sprint 2 |
+| FR-88 | **(R13.7)** Rate limiting: 5 failures → 5-min lockout per username | US-11 · B-58 | `AccountStore.authenticate()` increments `_AccountRow.failed_attempts`; on fifth failure sets `locked_until = now + 5 min`; raises `RateLimitError` with `locked_until` attribute | `Sprint2:S2 §2` (`TestAuthentication`): locks, rate-limit error, expiry, reset tests | DM-2; ADR-07 | Fully Traced | B-58 done Sprint 2; bug-regression tests added in §16 |
+| FR-89 | **(R13.8)** Session tokens expire after 24 h. Expired session blocks sync/account ops only; local CRUD unaffected `[LOG 05-04]` | US-11 · B-59 | `SessionManager.load()` compares `expires_at` ISO string to `datetime.now(UTC)`; returns `None` for expired sessions (treated as logged out for CRUD) | `Sprint2:S2 §3` (`test_session_expires_after_24h`, `test_session_not_expired_within_24h`) | DM-4 | Fully Traced | B-59 done Sprint 2; expired session → None → CRUD continues as anonymous |
+| FR-90 | **(R13.9)** `logout` detaches session; local notes (including account-associated) remain accessible `[LOG 05-04]` | US-11 · B-46 | `SessionManager.delete()` removes `.session` file; notes table untouched | `Sprint2:S2 §9` (`TestLogoutCommand`) | DM-4 | Fully Traced | B-46 done Sprint 2 |
+| FR-91 | **(R13.10)** Logged-in: show active account's notes + anonymous. Logged-out: show only anonymous `[LOG 05-04]` | US-11 · B-47 | `DatabaseStore.list(account_id)` returns `(account_notes, local_notes)`; `cli.list_cmd()` shows two labelled sections when logged in; flat list when logged out | `Sprint2:S2 §4` (list-scoping tests), `Sprint2:S2 §13` (`TestListCommand`) | DM-2 | Fully Traced | B-47 done Sprint 2 |
+| FR-92 | **(R13.11)** Queries scoped by `account_id`; no cross-account data access `[LOG 05-04]` | US-11 · B-47 | `DatabaseStore.list()` filters on `account_id`; `DatabaseStore.add(account_id=)` tags new notes; `disassociate_account()` and `associate_anonymous_notes()` maintain invariant | `Sprint2:S2 §4`–`§6` (scoping, disassociate, associate tests) | DM-2 | Fully Traced | B-47 done Sprint 2; no test shows cross-account leakage (`test_list_other_account_notes_not_shown`) |
+| FR-93 | **(R13.12)** `delete-account`: set `account_id = NULL` on local notes; delete server record; warn cloud copies deleted `[LOG 05-04]` | US-11 · B-61 | `cli.delete_account_cmd()`: verifies password + typed `CONFIRM DELETE ACCOUNT`; calls `store.disassociate_account()`, `account_store.delete()`, `SessionManager.delete()`, `audit_log.unlink()` | `Sprint2:S2 §10` (`TestDeleteAccountCommand`) | ADR-09 | Fully Traced | B-61, B-81 done Sprint 2 |
 | FR-94 | **(R13.13)** OAuth 2.0 / OpenID Connect via authlib; extensible provider registry; Google required minimum `[LOG 05-04]` | US-11/US-14 · B-87 | `AuthMiddleware.oauth_callback()` (planned) | (none) | ADR-12 (decided) | Weakly Traced | authlib chosen (ADR-12); no token flow diagram yet (gap T6) |
 | FR-118 | **(R13.14)** OAuth provider callback: authlib exchanges code for JWT; `sub` = `account_id`; extensible for GitHub/Microsoft `[LOG 05-04]` | US-11/US-14 · B-87 | `AuthMiddleware` provider registry (planned) | (none) | ADR-12 (decided) `[LOG 05-04]` | Weakly Traced | ADR-12 decided; no implementation |
 
@@ -269,17 +270,17 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 |---|---|---|---|---|---|---|---|
 | FR-95 | **(R14.1)** SQLite (personal): zero-config, WAL mode, retry logic | US-12 · B-42/B-66 | `DatabaseStore` (WAL event listener, `_execute_with_retry`) | `Sprint1:S1` §1 (WAL + retry tests) | ADR-02 | Fully Traced | B-66 done Sprint 1: WAL mode via `event.listen`; 5-attempt exponential backoff; all five store methods wrapped |
 | FR-96 | **(R14.2)** PostgreSQL (server) via `DATABASE_URL` env var; `sslmode=require` | US-12 · B-44/B-63 | `DatabaseStore` PostgreSQL (planned) | (none) | ADR-02; ADR-03 | Weakly Traced | ADR-02 documents choice; no connection or SSL enforcement code |
-| FR-97 | **(R14.3)** `notes` table schema: `account_id` nullable FK (NULL=anonymous), `synced_at` nullable timestamp `[LOG 05-04]` | US-12 · B-42/B-44/B-74/B-96 | `DatabaseStore` (planned) | (none) | DM-2 | Weakly Traced | Schema updated in DM-2; no SQLAlchemy ORM model |
+| FR-97 | **(R14.3)** `notes` table schema: `account_id` nullable FK (NULL=anonymous), `synced_at` nullable timestamp `[LOG 05-04]` | US-12 · B-42/B-44/B-74/B-96 | `_NoteRow` ORM: `account_id Text nullable`, `synced_at Text nullable`, `payload_location`, `encrypted_blob`; Alembic migration `e2f2634ce4f7` baseline | `Sprint2:S2 §4` (account_id column tests) | DM-2 | Fully Traced | account_id present since Sprint 0 baseline; Sprint 2 wires it end-to-end |
 | FR-98 | **(R14.4)** Sandbox blob: `[4B header_length][JSON header][raw payload bytes]` | US-12/US-2 · B-43 | `BlobCodec` (Sprint 0) | `Unit:TNS`; `Sprint1:S1` §6/§7 | DM-3; ADR-01 | Fully Traced | `BlobCodec` implemented Sprint 0; call sites in `DatabaseStore.add()` and `get()`; decode tested |
 | FR-99 | **(R14.5)** No sensitive metadata outside blob; `title`/`format` as plaintext columns | US-12/US-2 · B-43/B-74 | `DatabaseStore`, `BlobCodec` | `Unit:TNS`; `Sprint1:S1` §6 | DM-2; DM-3 | Fully Traced | `notes` table: only `id`, `title`, `format`, `encrypted`, `blob` columns; all content inside blob |
 | FR-100 | **(R14.6)** ACID transactions on every mutation | US-12 · B-51 | `DatabaseStore` SQLAlchemy session | `Unit:TNS` (all mutating tests); `Sprint1:S1` §6/§9/§10 | ADR-03 | Fully Traced | All mutations wrapped in SQLAlchemy `session.commit()`; rollback on exception |
 | FR-101 | **(R14.7)** `migrate` command: JSON → DB; backup; per-note passphrase prompt | US-12 · B-48/B-72/B-80 | `cli.migrate()` (planned) | (none) | ADR-02 | Weakly Traced | No migration sequence diagram; old field-level ciphertext format incompatible with blob format |
-| FR-102 | **(R14.8)** 5 MB threshold: ≤5 MB inline; >5 MB filesystem (encrypted only) | US-12 · B-49 | `DatabaseStore`, `BlobCodec` (planned) | (none) | DM-2; ADR-08 | Weakly Traced | ADR-08 documents threshold decision; no storage routing code |
-| FR-103 | **(R14.9)** Retrieval: `text/*` → display; binary → write to exports dir | US-12 · B-49 | `DatabaseStore.get()`, `cli.get()` (planned) | (none) | DM-2 | Weakly Traced | Binary retrieval flow not in any interaction diagram |
-| FR-104 | **(R14.10)** `accounts` table schema (created on first `register`/`login`) `[LOG 05-04]` | US-11 · B-45/B-96 | `DatabaseStore` (planned) | (none) | DM-2 | Weakly Traced | Schema updated in DM-2 (`accounts` not `users`); no ORM model |
+| FR-102 | **(R14.8)** 5 MB threshold: ≤5 MB inline; >5 MB filesystem (encrypted only) | US-12 · B-49 | `DatabaseStore.add()` checks `len(blob) > _FILESYSTEM_THRESHOLD_BYTES` (5 MiB); writes payload to `<data-dir>/files/<note_id>.bin`; `DatabaseStore.get()` reads it back; `DatabaseStore.delete()` unlinks it | `Sprint2:S2 §14`–`§15` (filesystem store/retrieve/delete tests), `Sprint2:S2 §18` (missing/orphaned payload edge cases) | DM-2; ADR-08 | Fully Traced | B-49 done Sprint 2; unencrypted notes always inline regardless of size [ADR-08] |
+| FR-103 | **(R14.9)** Retrieval: `text/*` → display; binary → write to exports dir | US-12 · B-49 | `DatabaseStore.get()` returns `Note` with blob loaded from filesystem; `cli.get()` displays UTF-8 decoded text for text/plain | `Sprint2:S2 §14` (get filesystem note test) | DM-2 | Partially Traced | Text display implemented; binary-format note auto-write to exports dir deferred to Sprint 3 |
+| FR-104 | **(R14.10)** `accounts` table schema (created on first `register`/`login`) `[LOG 05-04]` | US-11 · B-45/B-96 | `_AccountRow` ORM (`account_id`, `username`, `password_hash`, `created_at`, `failed_attempts`, `locked_until`); `AccountStore._Session` calls `create_all()` on init; Alembic migration `3b7c9f2d8a1e` | `Sprint2:S2 §1` (AccountStore registration and auth tests) | DM-2 | Fully Traced | B-96 done Sprint 2 |
 | FR-105 | **(R14.11)** Schema versioned via Alembic; future changes via migration scripts | US-12 · B-65 | `alembic/`, `alembic.ini`, `alembic/env.py`, migration `e2f2634ce4f7` | `Sprint1:S1` §13 (Alembic tests) | ADR-02 | Fully Traced | B-65 done Sprint 1: `alembic init` scaffold; `env.py` uses `_Base` from `src.core.notes`; Sprint 0 baseline migration committed |
-| FR-106 | **(R14.12)** Disk-full errors at DB layer → actionable message; no silent data loss | US-12/US-3 · B-67 | `DatabaseStore` (planned guard) | (none) | — | Weakly Traced | No disk-full handling designed at DB layer |
-| FR-107 | **(R14.13)** Flat data directory — always `<data-dir>/files/`, `exports/`, `audit.log`; no per-user subdirs `[LOG 05-04]` | US-12 · B-77 | `AuthManager`, `DatabaseStore` (planned) | (none) | ADR-09 (updated) | Weakly Traced | ADR-09 updated to flat dir model; no path-construction code |
+| FR-106 | **(R14.12)** Disk-full errors at DB layer → actionable message; no silent data loss | US-12/US-3 · B-67 | `_execute_with_retry()` catches `OperationalError` with "disk i/o error"/"disk full"/"no space" → raises `DiskFullError`; `DatabaseStore.add()` catches ENOSPC on `write_bytes` → raises `DiskFullError`; all CLI commands catch `DiskFullError` | `Sprint2:S2 §16`, `Sprint2:S2 §18` | — | Fully Traced | B-67 done Sprint 2 (see also FR-34) |
+| FR-107 | **(R14.13)** Flat data directory — always `<data-dir>/files/`, `exports/`, `audit.log`; no per-user subdirs `[LOG 05-04]` | US-12 · B-77 | `DatabaseStore.add()` writes payloads to `data_dir/files/<id>.bin`; `cli.delete_account_cmd()` deletes `data_dir/audit.log`; no per-user subdirectory constructed anywhere in `src/` | `Sprint2:S2 §14` (payload written to `files/` subdir), `Sprint2:S2 §10` (audit.log deleted on account delete) | ADR-09 | Fully Traced | B-77 done Sprint 2 |
 
 ---
 
@@ -345,10 +346,10 @@ Five elements appear in the design or source code without a traceable requiremen
 | Metric | Count | % of Total |
 |---|---|---|
 | Total requirements reviewed | 138 | 100% |
-| **Fully Traced** | 49 | 36% |
-| **Partially Traced** | 5 | 4% |
-| **Weakly Traced** | 73 | 53% |
-| **Not Traced** | 10 | 7% |
+| **Fully Traced** | 71 | 51% |
+| **Partially Traced** | 7 | 5% |
+| **Weakly Traced** | 49 | 36% |
+| **Not Traced** | 11 | 8% |
 | Stable FR IDs assigned | 127 | — |
 | Stable NFR IDs assigned | 14 | — |
 | UML elements without a requirement | 4 | — |
@@ -356,6 +357,8 @@ Five elements appear in the design or source code without a traceable requiremen
 > **Note (2026-05-07):** All Sprint Zero source code and tests were removed. All 29 previously Fully Traced items and 17 previously Partially Traced items are now Weakly Traced (design evidence only; no code; no tests). `Note.metadata` orphan removed from design — UML orphan count reduced from 5 to 4. See [planning/design.md](design.md) v1.3 for updated class diagrams and interaction diagrams.
 
 > **Note (2026-05-18/20 — Sprint 1 complete):** All Sprint 1 backlog items implemented and tested. 49 requirements are now Fully Traced; 5 Partially Traced (crash isolation done, sandboxing / config allowlist / error attribution deferred; SQLAlchemy ORM parameterization, null-byte injection prevention, and R6 testing NFRs confirmed complete). 140 tests pass; 99% branch coverage on core modules. Remaining WT items are Sprint 2–5 scope.
+
+> **Note (2026-05-21 — Sprint 2 complete):** All Sprint 2 backlog items (B-41, B-45, B-46, B-47, B-49, B-57, B-58, B-59, B-60, B-61, B-64, B-67, B-68, B-75, B-77, B-81, B-96) implemented and tested. 71 requirements are now Fully Traced (+22 from Sprint 2); 7 Partially Traced (+2: FR-79 `--local` flag deferred, FR-103 binary export deferred to Sprint 3). 246 tests pass (1 skipped — POSIX chmod, Windows-only); **100% branch coverage** on all six core modules. Three auth bugs fixed (B-60 `\Z` anchor, IntegrityError race, corrupt-session cleanup). See `AI Working Log/working-log-2026-05-21.md`.
 
 > **Note `[LOG 05-04]`:** R11 expanded from 4 items to 12 (split into Desktop GUI Sprint 4 + Sync-Enabled Desktop Client Sprint 5 — one PySide6 app); R12 rewritten for three-layer model (8 → 7 items); R13 updated for optional auth (15 → 14 items, removed FR-119); R16 rewritten as sync server with push/pull model. Total 141 → 139. FR-114 dropped (offline covered by FR-76 — local SQLite is always on, not a cache). Total 139 → 138. `[LOG 05-04]`
 
@@ -365,7 +368,7 @@ Five elements appear in the design or source code without a traceable requiremen
 |---|---|---|---|---|---|
 | R1 — Note Management (CRUD) | 10 | 9 | 0 | 0 | 0 |
 | R2 — Encryption | 16 | 13 | 1 | 2 | 0 |
-| R3 — Data Persistence | 8 | 5 | 0 | 1 | 0 |
+| R3 — Data Persistence | 8 | 6 | 0 | 0 | 0 |
 | R4 — Plugin System | 10 | 8 | 2 | 3 | 0 |
 | R5 — CLI Interface | 3 | 2 | 1 | 0 | 0 |
 | R6 — Testing (NFR) | 5 | 4 | 1 | 0 | 0 |
@@ -374,26 +377,26 @@ Five elements appear in the design or source code without a traceable requiremen
 | R9 — Configuration | 6 | 0 | 0 | 6 | 0 |
 | R10 — Search and Export | 7 | 0 | 0 | 7 | 0 |
 | R11 — GUI Layer (split) | 11 | 0 | 0 | 8 | 3 |
-| R12 — Local-First + Opt-In Account `[LOG 05-04]` | 7 | 0 | 0 | 7 | 0 |
-| R13 — Optional Authentication `[LOG 05-04]` | 14 | 0 | 0 | 12 | 2 |
-| R14 — Database Storage | 13 | 5 | 0 | 7 | 0 |
+| R12 — Local-First + Opt-In Account `[LOG 05-04]` | 7 | 4 | 1 | 2 | 0 |
+| R13 — Optional Authentication `[LOG 05-04]` | 14 | 12 | 0 | 0 | 2 |
+| R14 — Database Storage | 13 | 10 | 1 | 2 | 0 |
 | R15 — Injection Prevention (NFR) | 9 | 3 | 0 | 6 | 0 |
 | R16 — Sync Server (updated) `[LOG 05-04]` | 8 | 0 | 0 | 3 | 5 |
-| **Total** | **138** | **49** | **5** | **73** | **10** |
+| **Total** | **138** | **71** | **7** | **49** | **11** |
 
 ---
 
 ## 5. Gap Analysis
 
-### 5.1 What Should Be Refined Before Sprint 2 Implementation
+### 5.1 Open Gaps for Sprint 3 Implementation
 
 **Critical (block implementation):**
 
-1. **FR-77 / FR-97 — `account_id` nullable FK** not yet on the `notes` table. Sprint 2 (B-96) must add the `accounts` table and FK column via Alembic before any auth work begins.
+1. ~~**FR-77 / FR-97 — `account_id` nullable FK**~~ **Resolved Sprint 2** — `_NoteRow.account_id` column present; `accounts` table created via Alembic migration `3b7c9f2d8a1e`.
 
-2. **FR-90 — Session validation integration point undefined.** No interaction diagram shows where `AuthManager.verify_session()` is called in CLI dispatch. Must be resolved before implementing any auth command (Sprint 2).
+2. ~~**FR-90 — Session validation integration point undefined.**~~ **Resolved Sprint 2** — `SessionManager.load()` called in `cli.add_cmd()` and `cli.list_cmd()` to read active `account_id`.
 
-3. **FR-59 — `ConfigStore` startup integration.** No diagram shows when `ConfigStore` loads defaults before the first command. Prerequisite for Sprint 2 B-26 config commands.
+3. **FR-59 — `ConfigStore` startup integration.** No diagram shows when `ConfigStore` loads defaults before the first command. Prerequisite for Sprint 3 B-26 config commands.
 
 **Important (before final release):**
 
@@ -408,10 +411,12 @@ Five elements appear in the design or source code without a traceable requiremen
 | Item | Reason |
 |---|---|
 | FR-74 (R11.3), FR-113 (R11.10) — Not Traced | Sprint 4/5 scope; UI wireframe (FR-74) and sync trigger mechanism (FR-113) require Sprint 4/5 design phase artifacts; FR-114 dropped — offline behavior covered by FR-76 |
-| FR-109 (R11.6), FR-115 (R11.12) — now Weakly Traced `[LOG 05-04]` | ADR-13 decided (Svelte + FastAPI); framework is resolved; implementation awaits Sprint 4/5 |
-| FR-118–FR-119 (R13.14–R13.15) — Not Traced | Sprint 5 scope; ADR-12 (OAuth strategy) pending |
-| FR-120–FR-127 (R16) — Not Traced | Sprint 5 scope; ADR-11 (REST API framework) pending |
-| FR-95–FR-107 (DB) Weakly Traced | Sprint 2 scope; ADRs and data models provide the required design baseline |
-| FR-82–FR-94 (Auth) Weakly Traced | Sprint 2 scope; ADRs and class stubs provide baseline |
+| FR-109 (R11.6), FR-115 (R11.12) — now Weakly Traced `[LOG 05-04]` | ADR-13 decided (PySide6); framework is resolved; implementation awaits Sprint 4/5 |
+| FR-118–FR-119 (R13.14–R13.15) — Not Traced | Sprint 5 scope; ADR-12 (OAuth strategy) decided; implementation pending |
+| FR-120–FR-127 (R16) — Not Traced | Sprint 5 scope; ADR-11 (FastAPI) decided; sync server implementation pending |
+| FR-82–FR-93 (Auth) — now Fully Traced | Sprint 2 complete; see Sprint 2 completion note above |
+| FR-96, FR-101 (R14) — Weakly Traced | PostgreSQL connection (FR-96) and JSON→DB migration command (FR-101) deferred to Sprint 3/5 |
+| FR-79 (R12.4) — Partially Traced | `--local` flag on `add` deferred; auto-account_id assignment implemented |
+| FR-103 (R14.9) — Partially Traced | Text display implemented; binary-format auto-write to exports dir deferred to Sprint 3 |
 
 ---

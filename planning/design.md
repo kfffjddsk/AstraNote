@@ -23,7 +23,7 @@ AstraNotes uses a **three-layer additive model** — each layer is independent a
 
 The CLI is the primary interface for Sprints 0–3. A PySide6 desktop app (Sprint 4: local CRUD; Sprint 5: sync added) shares the same core modules and SQLite local store. There is no browser-based surface — the sync server (Sprint 5) is a backend-only REST service.
 
-**Design status (updated 2026-05-20):** Sprint 1 complete. Core modules (`DatabaseStore`, `BlobCodec`, `EncryptionEngine`, `KeyManager`, `PluginBase`, `PluginRegistry`) and the Click CLI are implemented and tested. Components marked `[planned]` are scheduled for Sprints 2–5. Open design gaps tracked in `Copilot/discussion-list.md`. `[LOG 05-11]`
+**Design status (updated 2026-05-21):** Sprint 2 complete. Core modules (`DatabaseStore`, `BlobCodec`, `EncryptionEngine`, `KeyManager`, `PluginBase`, `PluginRegistry`, `AccountStore`, `SessionManager`) and the Click CLI (including `register`, `login`, `logout`, `delete-account` commands) are implemented and tested. 246 tests pass; 100% branch coverage on all six core modules. Components marked `[planned]` are scheduled for Sprints 3–5. Open design gaps tracked in `Copilot/discussion-list.md`. `[LOG 05-21]`
 
 ---
 

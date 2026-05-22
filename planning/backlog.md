@@ -57,29 +57,29 @@ Items ordered by priority. Status reflects current state.
 
 ---
 
-## Sprint 2 — Planned
+## Sprint 2 — Done ✅
 
-> **Goal:** Opt-in account layer, session management, and auth hardening.
+> **Goal:** Opt-in account layer, session management, and auth hardening. Completed May 2026 — 246 tests total (106 new Sprint 2 tests + 3 bug-regression tests + 8 branch-coverage tests), 1 skipped (POSIX permission test, Windows-only skip). 100% branch coverage on all core modules.
 
-| ID | Item | User Story | Priority |
-|----|------|------------|----------|
-| B-41 | First-login anonymous note association prompt `[LOG 05-04]` | US-10 | High |
-| B-45 | User registration and bcrypt password hashing | US-11 | Medium |
-| B-46 | Login/logout session management | US-11 | Medium |
-| B-47 | User isolation — scope queries by `account_id` `[LOG 05-04]` | US-11 | Medium |
-| B-49 | Hybrid storage: 5 MB threshold, encrypted-only filesystem payloads | US-12 | High |
-| B-57 | Interactive auth prompts (hide_input=True) — never accept password as CLI arg | US-11 | High |
-| B-58 | Auth rate limiting — 5 failures → 5-min lockout per username | US-11 | High |
-| B-59 | Session token file with 24h expiry at `<data-dir>/.session` | US-11 | High |
-| B-60 | Username validation — 3–32 chars, alphanumeric + underscore, case-insensitive | US-11 | Medium |
-| B-61 | Account deletion: set `account_id = NULL` on local notes; delete server record; warn user `[LOG 05-04]` | US-11 | Medium |
-| B-64 | `DATABASE_URL` env-var only — never stored in config.json | US-12, US-13 | High |
-| B-67 | Disk-full (`ENOSPC`) error handling at DB and filesystem layers | US-3, US-12 | Medium |
-| B-68 | Filesystem payload orphan cleanup on note delete | US-12 | Medium |
-| B-75 | Session token file permissions — restrict to creator + administrator only | US-11 | High |
-| B-77 | Flat data directory — always `<data-dir>/` layout `[LOG 05-04]` | US-12 | Medium |
-| B-81 | Per-user audit log deletion on `delete-account` | US-6, US-11 | High |
-| B-96 | `accounts` table (local SQLite): `account_id` UUID PK, `username`, `password_hash`, `failed_attempts`, `locked_until` `[LOG 05-04]` | US-11, US-12 | High |
+| ID | Item | User Story | Priority | Status |
+|----|------|------------|----------|--------|
+| B-41 | First-login anonymous note association prompt `[LOG 05-04]` | US-10 | High | ✅ Done |
+| B-45 | User registration and bcrypt password hashing | US-11 | Medium | ✅ Done |
+| B-46 | Login/logout session management | US-11 | Medium | ✅ Done |
+| B-47 | User isolation — scope queries by `account_id` `[LOG 05-04]` | US-11 | Medium | ✅ Done |
+| B-49 | Hybrid storage: 5 MB threshold, encrypted-only filesystem payloads | US-12 | High | ✅ Done |
+| B-57 | Interactive auth prompts (hide_input=True) — never accept password as CLI arg | US-11 | High | ✅ Done |
+| B-58 | Auth rate limiting — 5 failures → 5-min lockout per username | US-11 | High | ✅ Done |
+| B-59 | Session token file with 24h expiry at `<data-dir>/.session` | US-11 | High | ✅ Done |
+| B-60 | Username validation — 3–32 chars, alphanumeric + underscore, case-insensitive | US-11 | Medium | ✅ Done |
+| B-61 | Account deletion: set `account_id = NULL` on local notes; delete server record; warn user `[LOG 05-04]` | US-11 | Medium | ✅ Done |
+| B-64 | `DATABASE_URL` env-var only — never stored in config.json | US-12, US-13 | High | ✅ Done |
+| B-67 | Disk-full (`ENOSPC`) error handling at DB and filesystem layers | US-3, US-12 | Medium | ✅ Done |
+| B-68 | Filesystem payload orphan cleanup on note delete | US-12 | Medium | ✅ Done |
+| B-75 | Session token file permissions — restrict to creator + administrator only | US-11 | High | ✅ Done |
+| B-77 | Flat data directory — always `<data-dir>/` layout `[LOG 05-04]` | US-12 | Medium | ✅ Done |
+| B-81 | Per-user audit log deletion on `delete-account` | US-6, US-11 | High | ✅ Done |
+| B-96 | `accounts` table (local SQLite): `account_id` UUID PK, `username`, `password_hash`, `failed_attempts`, `locked_until` `[LOG 05-04]` | US-11, US-12 | High | ✅ Done |
 
 ---
 
