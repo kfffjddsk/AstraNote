@@ -329,13 +329,21 @@ class TestDatabaseStoreSearch:
         store.add(enc)
         assert store.search("secret data") == []
 
-    def test_search_encrypted_included_when_flag_set(self, tmp_path: Path) -> None:
+    def test_search_encrypted_body_never_returned_by_store(self, tmp_path: Path) -> None:
+        """search() never returns an encrypted note blob regardless of query.  [REQ R10.1]"""
         store = _make_store(tmp_path)
         enc = make_encrypted_note("[Encrypted Note]", "secret data", "pass123!")
         store.add(enc)
-        results = store.search("secret", include_encrypted=True)
-        assert len(results) == 1
-        assert results[0].blob is not None
+        # query matches encrypted body — must NOT be returned (alias doesn't match either)
+        results = store.search("secret")
+        assert results == []
+        # Even a query matching the alias returns the note with blob=None
+        enc2 = make_encrypted_note("Real", "secret data", "pass123!",
+                                   alias="Budget Sheet")
+        store.add(enc2)
+        results2 = store.search("Budget")
+        assert len(results2) == 1
+        assert results2[0].blob is None  # blob never exposed by search()
 
     def test_search_multiple_notes_correct_subset(self, tmp_path: Path) -> None:
         store = _make_store(tmp_path)
@@ -353,7 +361,7 @@ class TestDatabaseStoreSearch:
     # --- Alias / encrypted search edge-cases ---------------------------------
 
     def test_search_encrypted_alias_matched_without_flag(self, tmp_path: Path) -> None:
-        """Plaintext alias always searchable even without include_encrypted.  [REQ R10.1]"""
+        """Plaintext alias always searchable — no passphrase needed.  [REQ R10.1]"""
         store = _make_store(tmp_path)
         enc = make_encrypted_note("Real Title", "secret body", "pass123!",
                                   alias="Budget Meeting")
@@ -373,22 +381,22 @@ class TestDatabaseStoreSearch:
         assert results[0].blob is None  # alias match never exposes blob
 
     def test_search_default_alias_not_matched_by_content_query(self, tmp_path: Path) -> None:
-        """Default alias '[Encrypted Note]' doesn't match a content-only query."""
+        """Default alias '[Encrypted Note]' doesn't match a body-only query."""
         store = _make_store(tmp_path)
         enc = make_encrypted_note("[Encrypted Note]", "hidden body", "pass123!")
         store.add(enc)
-        # Query won't match "[Encrypted Note]" alias, and include_encrypted is False
+        # "hidden" is in the encrypted body, NOT in the alias
         assert store.search("hidden") == []
 
-    def test_search_encrypted_alias_one_result_even_when_include_encrypted(self, tmp_path: Path) -> None:
-        """Alias match takes precedence — note appears only once even with include_encrypted."""
+    def test_search_encrypted_alias_returns_note_with_blob_none(self, tmp_path: Path) -> None:
+        """Alias match — search() always returns blob=None; decryption is caller's job."""
         store = _make_store(tmp_path)
         enc = make_encrypted_note("Real", "Budget details", "pass123!",
                                   alias="Budget Meeting")
         store.add(enc)
-        results = store.search("Budget", include_encrypted=True)
-        assert len(results) == 1          # deduplicated
-        assert results[0].blob is None    # alias-match bucket, not blob bucket
+        results = store.search("Budget")
+        assert len(results) == 1
+        assert results[0].blob is None  # search() never exposes blob
 
     def test_search_title_only_match(self, tmp_path: Path) -> None:
         """A note is returned when query matches title but not content."""
@@ -406,24 +414,26 @@ class TestDatabaseStoreSearch:
         results = store.search("VerySpecificContentKeyword")
         assert len(results) == 1
 
-    def test_search_does_not_expose_encrypted_content_without_flag(self, tmp_path: Path) -> None:
-        """Encrypted body never appears in results when include_encrypted=False."""
+    def test_search_does_not_expose_encrypted_content(self, tmp_path: Path) -> None:
+        """Encrypted body NEVER appears in search() results — no flag can expose it."""
         store = _make_store(tmp_path)
         enc = make_encrypted_note("Real", "confidential payload", "pass123!",
                                   alias="Work Notes")
         store.add(enc)
-        # "confidential" is in the encrypted body, NOT in the alias
-        results = store.search("confidential")
-        assert results == []
+        # "confidential" is in the body, NOT the alias — must never surface
+        assert store.search("confidential") == []
 
-    def test_search_encrypted_without_alias_match_returns_blob_when_flag(self, tmp_path: Path) -> None:
-        """When alias doesn't match but include_encrypted=True, blob is provided."""
+    def test_search_encrypted_no_blob_even_with_body_query(self, tmp_path: Path) -> None:
+        """search() returns blob=None for any alias match — never for body queries."""
         store = _make_store(tmp_path)
         enc = make_encrypted_note("[Encrypted Note]", "confidential payload", "pass123!")
         store.add(enc)
-        results = store.search("confidential", include_encrypted=True)
+        # "confidential" matches body but not alias → 0 results
+        assert store.search("confidential") == []
+        # "Encrypted" matches alias → 1 result with blob=None
+        results = store.search("Encrypted")
         assert len(results) == 1
-        assert results[0].blob is not None  # blob provided for decryption
+        assert results[0].blob is None
 
 
 # ===========================================================================
@@ -602,6 +612,112 @@ class TestCliSearch:
         )
         assert result.exit_code == 0
         assert "classified" in result.output
+
+    # --- Decryption-pass tests (--encrypted treats decrypted notes like plain) ---
+
+    def test_search_decrypted_note_matched_by_real_title(self, tmp_path: Path) -> None:
+        """--encrypted with correct passphrase: real decrypted title is matched.  [REQ R10.3]"""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["--data-dir", str(tmp_path), "add", "--title", "Quarterly Budget",
+             "--encrypt", "--content", "some numbers"],
+            input="TitlePass1!\nTitlePass1!\n",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+
+        # Note was added with title "Quarterly Budget" (stored in blob header).
+        # Search by a part of the real title, which is NOT the alias.
+        result = _invoke(
+            runner, ["search", "--encrypted", "Quarterly"], tmp_path,
+            input="TitlePass1!\n"
+        )
+        assert result.exit_code == 0
+        assert "Quarterly Budget" in result.output
+
+    def test_search_decrypted_note_matched_by_content(self, tmp_path: Path) -> None:
+        """--encrypted with correct passphrase: real decrypted content is matched.  [REQ R10.3]"""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["--data-dir", str(tmp_path), "add", "--title", "My Enc Note",
+             "--encrypt", "--content", "SuperSecretBodyKeyword"],
+            input="BodyPass1!\nBodyPass1!\n",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+
+        result = _invoke(
+            runner, ["search", "--encrypted", "SuperSecretBodyKeyword"], tmp_path,
+            input="BodyPass1!\n"
+        )
+        assert result.exit_code == 0
+        assert "SuperSecretBodyKeyword" in result.output
+
+    def test_search_decrypted_note_shows_real_title_not_alias(self, tmp_path: Path) -> None:
+        """When decrypted, output shows the real title stored in the blob header, not alias."""
+        runner = CliRunner()
+        # Add via CLI; the CLI stores the real title in the blob header.
+        result = runner.invoke(
+            cli,
+            ["--data-dir", str(tmp_path), "add", "--title", "Real Secret Title",
+             "--encrypt", "--content", "matching content phrase"],
+            input="RealTitlePass1!\nRealTitlePass1!\n",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+
+        result = _invoke(
+            runner, ["search", "--encrypted", "matching content phrase"], tmp_path,
+            input="RealTitlePass1!\n"
+        )
+        assert result.exit_code == 0
+        # Real title in output (decrypted notes act as plain notes)
+        assert "Real Secret Title" in result.output
+
+    def test_search_no_duplicate_when_alias_and_decrypt_both_match(
+        self, tmp_path: Path
+    ) -> None:
+        """Note shown once even when alias matches AND decryption also yields a match."""
+        runner = CliRunner()
+        # Create a note whose *alias* contains the search query AND whose content also matches.
+        # We use the store directly to control the alias separately from the real title.
+        store = _make_store(tmp_path)
+        # make_encrypted_note stores real title in blob, alias in DB title column
+        enc = make_encrypted_note(
+            "Real Title",
+            "budget numbers inside",
+            "DedupPass1!",
+            alias="Budget Report",
+        )
+        store.add(enc)
+
+        # "budget" matches BOTH the alias ("Budget Report") and the content.
+        result = _invoke(
+            runner, ["search", "--encrypted", "budget"], tmp_path,
+            input="DedupPass1!\n"
+        )
+        assert result.exit_code == 0
+        # The note appears exactly once in the output.
+        assert result.output.count(enc.id) == 1
+
+    def test_search_encrypted_wrong_passphrase_fallback_to_alias(
+        self, tmp_path: Path
+    ) -> None:
+        """With --encrypted but wrong passphrase, alias-matching notes still shown."""
+        runner = CliRunner()
+        store = _make_store(tmp_path)
+        enc = make_encrypted_note("Real", "body text", "CorrectPass1!",
+                                  alias="Visible Alias")
+        store.add(enc)
+        # Wrong passphrase — decryption fails, but alias matches "Visible"
+        result = _invoke(
+            runner, ["search", "--encrypted", "Visible"], tmp_path,
+            input="WrongPass1!\n"
+        )
+        assert result.exit_code == 0
+        assert "Visible Alias" in result.output
 
 
 class TestCliExport:

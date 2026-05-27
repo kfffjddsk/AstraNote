@@ -510,21 +510,18 @@ class DatabaseStore:
         query: str,
         *,
         account_id: Optional[str] = None,
-        include_encrypted: bool = False,
     ) -> list[Note]:
         """Case-insensitive substring search over title and plaintext content.
 
         Search semantics:
         - Non-encrypted notes: match checked against ``title`` AND ``content``.
-        - Encrypted notes: the plaintext alias stored in ``title`` is ALWAYS
-          searched (case-insensitive).  If the alias matches, the note is
-          returned in listing mode (``blob=None``) so the caller can display
-          the alias without needing a passphrase.  [REQ R10.1]
-        - When ``include_encrypted=True`` AND the alias does NOT already match,
-          the note is also returned with its blob loaded so the caller can
-          attempt decryption and content-level matching.  [REQ R10.3]
-        - A note appears at most once in the result list.  Alias match takes
-          precedence over blob-for-decryption.
+        - Encrypted notes: ONLY the plaintext alias stored in ``title`` is
+          searched.  Content and blob are NEVER read or exposed by this method.
+          If the alias matches, the note is returned with ``blob=None`` so the
+          caller can display it without a passphrase.  [REQ R10.1]
+        - For content-level searching of encrypted notes the caller must decrypt
+          independently (e.g. CLI ``--encrypted`` flag) and re-run the match.
+          [REQ R10.3]
         - Account scoping follows the same rules as :meth:`list`:
           ``account_id=None`` → only anonymous notes; non-None → account notes
           and anonymous notes.
@@ -547,26 +544,10 @@ class DatabaseStore:
                             continue
 
                     if row.is_encrypted:
-                        # Always search the plaintext alias (stored in title column).
-                        alias_match = q_lower in (row.title or "").lower()
-                        if alias_match:
-                            # Return note with blob=None — alias is plaintext,
-                            # no passphrase or decryption needed.  [REQ R10.1]
+                        # Only search the plaintext alias — never read or expose blob.
+                        if q_lower in (row.title or "").lower():
                             note = _row_to_note(row, listing_mode=True)
-                            note.blob = None  # explicit: alias match never exposes blob
-                            results.append(note)
-                        elif include_encrypted:
-                            # Alias didn't match; return blob so caller can decrypt
-                            # and do content-level matching.  [REQ R10.3]
-                            note = _row_to_note(row)
-                            if row.payload_location == "filesystem":
-                                file_path = (
-                                    self._data_dir / _PAYLOAD_DIR / f"{row.note_id}.bin"
-                                )
-                                try:
-                                    note.blob = file_path.read_bytes()
-                                except (FileNotFoundError, OSError):
-                                    pass  # blob stays None; caller handles gracefully
+                            note.blob = None  # alias match never exposes blob
                             results.append(note)
                     else:
                         title_match = q_lower in (row.title or "").lower()
