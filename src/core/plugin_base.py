@@ -9,7 +9,7 @@ import importlib.util
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -86,16 +86,31 @@ class PluginRegistry:
 # ---------------------------------------------------------------------------
 
 
-def discover_plugins(plugin_dir: Path, registry: PluginRegistry) -> list[PluginBase]:
+def discover_plugins(
+    plugin_dir: Path,
+    registry: PluginRegistry,
+    *,
+    allowed_plugins: Optional[frozenset[str]] = None,
+    override_check_fn: Optional[Callable[[PluginBase], bool]] = None,
+) -> list[PluginBase]:
     """Import every ``*.py`` file in *plugin_dir* and register :class:`PluginBase`
     subclasses found therein with *registry*.
 
-    Rules:
+    Core rules:
     - Files whose name starts with ``_`` are skipped (e.g. ``__init__.py``).
     - Import failures are caught and logged; they never abort the process.
     - Instantiation failures are caught and logged per-class.
     - Already-registered plugin types are silently skipped (handled by
       :meth:`PluginRegistry.register_plugin`).
+
+    Sprint 3 additions:
+    - ``allowed_plugins``: if provided and non-empty, only plugins whose
+      ``name`` attribute is in the set are registered; others are rejected with
+      a warning.  [BL B-69] [REQ R4.10]
+    - ``override_check_fn``: if a plugin has a non-empty ``overrides`` list,
+      this callback is called with the plugin instance.  Return ``True`` to
+      allow registration; ``False`` to skip.  The callback is responsible for
+      user interaction and audit logging.  [BL B-24] [REQ R7]
 
     Returns the list of successfully registered plugin instances.  [BL B-37]
     """
@@ -125,6 +140,27 @@ def discover_plugins(plugin_dir: Path, registry: PluginRegistry) -> list[PluginB
             ):
                 try:
                     instance = attr()
+
+                    # Allowlist check  [BL B-69] [REQ R4.10]
+                    if allowed_plugins and instance.name not in allowed_plugins:
+                        logger.warning(
+                            "Plugin %r is not in allowed_plugins list; skipping.",
+                            instance.name,
+                        )
+                        continue
+
+                    # Override policy check  [BL B-24] [REQ R7]
+                    if (
+                        getattr(instance, "overrides", None)
+                        and override_check_fn is not None
+                    ):
+                        if not override_check_fn(instance):
+                            logger.info(
+                                "Plugin %r skipped — override rejected by user.",
+                                instance.name,
+                            )
+                            continue
+
                     registry.register_plugin(instance)
                     loaded.append(instance)
                     logger.info("Loaded plugin %r from %s.", attr_name, py_file)

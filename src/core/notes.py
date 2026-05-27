@@ -409,7 +409,22 @@ class DatabaseStore:
                 if not row.is_encrypted and content is not None:
                     row.content = content
                 if row.is_encrypted and blob is not None:
-                    row.encrypted_blob = blob
+                    if row.payload_location == "filesystem":
+                        # Write re-encrypted payload back to the filesystem file;
+                        # the DB ``encrypted_blob`` column stays NULL.  [BL B-62]
+                        file_path = self._data_dir / _PAYLOAD_DIR / f"{note_id}.bin"
+                        try:
+                            file_path.write_bytes(blob)
+                        except OSError as exc:
+                            if getattr(exc, "errno", None) == errno.ENOSPC:
+                                raise DiskFullError(
+                                    errno.ENOSPC,
+                                    f"Cannot write re-encrypted payload for {note_id!r}:"
+                                    " no space left on device.",
+                                ) from exc
+                            raise
+                    else:
+                        row.encrypted_blob = blob
                 row.modified_at = _utcnow()
                 session.commit()
                 # Access attributes while session is still open (auto-refresh after commit).
@@ -483,6 +498,69 @@ class DatabaseStore:
                         local_notes.append(note)
                     # else: belongs to a different account — omit
             return account_notes, local_notes
+
+        return _execute_with_retry(_do)
+
+    # ------------------------------------------------------------------
+    # search  [BL B-29] [REQ R10.1–R10.3]
+    # ------------------------------------------------------------------
+
+    def search(
+        self,
+        query: str,
+        *,
+        account_id: Optional[str] = None,
+        include_encrypted: bool = False,
+    ) -> list[Note]:
+        """Case-insensitive substring search over title and plaintext content.
+
+        - Non-encrypted notes: match checked against ``title`` and ``content``.
+        - Encrypted notes: excluded by default.  When ``include_encrypted=True``,
+          all encrypted notes in scope are returned with their blobs loaded so
+          the caller can attempt decryption and content-level matching.
+        - Account scoping follows the same rules as :meth:`list`:
+          ``account_id=None`` → only anonymous notes; non-None → account notes
+          and anonymous notes.
+
+        Refs: [BL B-29] [REQ R10.1–R10.3]
+        """
+        q_lower = query.lower()
+
+        def _do() -> list[Note]:
+            with self._Session() as session:
+                rows = session.query(_NoteRow).all()
+                results: list[Note] = []
+                for row in rows:
+                    # Account scoping (mirrors list() logic).
+                    if account_id is not None:
+                        if row.account_id != account_id and row.account_id is not None:
+                            continue
+                    else:
+                        if row.account_id is not None:
+                            continue
+
+                    if row.is_encrypted:
+                        if not include_encrypted:
+                            continue
+                        # Return encrypted notes with blobs so caller can decrypt.
+                        note = _row_to_note(row)  # blob from DB (may be None if filesystem)
+                        # Load filesystem payload when needed.
+                        if row.payload_location == "filesystem":
+                            file_path = (
+                                self._data_dir / _PAYLOAD_DIR / f"{row.note_id}.bin"
+                            )
+                            try:
+                                note.blob = file_path.read_bytes()
+                            except (FileNotFoundError, OSError):
+                                pass  # blob stays None; caller handles gracefully
+                        results.append(note)
+                    else:
+                        title_match = q_lower in (row.title or "").lower()
+                        content_match = q_lower in (row.content or "").lower()
+                        if title_match or content_match:
+                            results.append(_row_to_note(row))
+
+                return results
 
         return _execute_with_retry(_do)
 

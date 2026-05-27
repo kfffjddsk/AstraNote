@@ -83,28 +83,28 @@ Items ordered by priority. Status reflects current state.
 
 ---
 
-## Sprint 3 — Planned
+## Sprint 3 — ✅ Done
 
 > **Goal:** Plugin hardening, audit trail, config module, search, and export.
 
-| ID | Item | User Story | Priority |
-|----|------|------------|----------|
-| B-24 | Override policy: red warning + `CONFIRM OVERRIDE` for plugin overrides | US-5 | Medium |
-| B-25 | Audit trail: JSON-per-line log with structured fields and filters | US-6 | Medium |
-| B-26 | Config module: known-key whitelist with `set`/`get`/`list`/`reset` | US-7 | Medium |
-| B-28 | Plugin CLI commands wired into main CLI | US-4 | Medium |
-| B-29 | Substring search with `--encrypted` flag | US-8 | Low |
-| B-30 | Export to text/JSON with `--output` and `--encrypted` | US-8 | Low |
-| B-54 | Strip ANSI/control codes from terminal output | US-1, US-13 | Medium |
-| B-55 | Path traversal prevention for `--data-dir`, `--output`, filesystem payloads | US-1, US-12, US-13 | Medium |
-| B-56 | Plugin sandboxing — read-only note copies, no exec/eval, no raw DB access | US-4, US-13 | Medium |
-| B-62 | Passphrase rotation via `reencrypt <note_id>` | US-2 | Medium |
-| B-69 | Plugin allowlist in config — reject unlisted plugins | US-4 | Medium |
-| B-71 | Expand audit trail scope — login/logout/register/delete-account/export | US-6 | Medium |
-| B-73 | Document passphrase memory-residency limitation | US-2 | Low |
-| B-76 | Export binary notes: write raw payload file + path reference in manifest | US-8 | Medium |
-| B-78 | Export file permissions + `export --cleanup` command | US-8 | High |
-| B-79 | Alias info warning for encrypted notes | US-2 | Medium |
+| ID | Item | User Story | Priority | Status |
+|----|------|------------|----------|--------|
+| B-24 | Override policy: red warning + `CONFIRM OVERRIDE` for plugin overrides | US-5 | Medium | ✅ Done |
+| B-25 | Audit trail: JSON-per-line log with structured fields and filters | US-6 | Medium | ✅ Done |
+| B-26 | Config module: known-key whitelist with `set`/`get`/`list`/`reset` | US-7 | Medium | ✅ Done |
+| B-28 | Plugin CLI commands wired into main CLI | US-4 | Medium | ✅ Done |
+| B-29 | Substring search with `--encrypted` flag | US-8 | Low | ✅ Done |
+| B-30 | Export to text/JSON with `--output` and `--encrypted` | US-8 | Low | ✅ Done |
+| B-54 | Strip ANSI/control codes from terminal output | US-1, US-13 | Medium | ✅ Done |
+| B-55 | Path traversal prevention for `--data-dir`, `--output`, filesystem payloads | US-1, US-12, US-13 | Medium | ✅ Done |
+| B-56 | Plugin sandboxing — read-only note copies, no exec/eval, no raw DB access | US-4, US-13 | Medium | ✅ Done |
+| B-62 | Passphrase rotation via `reencrypt <note_id>` | US-2 | Medium | ✅ Done |
+| B-69 | Plugin allowlist in config — reject unlisted plugins | US-4 | Medium | ✅ Done |
+| B-71 | Expand audit trail scope — login/logout/register/delete-account/export | US-6 | Medium | ✅ Done |
+| B-73 | Document passphrase memory-residency limitation | US-2 | Low | ✅ Done |
+| B-76 | Export binary notes: write raw payload file + path reference in manifest | US-8 | Medium | ✅ Done |
+| B-78 | Export file permissions + `export --cleanup` command | US-8 | High | ✅ Done |
+| B-79 | Alias info warning for encrypted notes | US-2 | Medium | ✅ Done |
 
 ---
 

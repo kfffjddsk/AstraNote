@@ -1,6 +1,6 @@
 """BDD step definitions for AstraNotes.
 
-All 17 scenarios from 5 feature files are registered here.  State is shared
+All scenarios from 8 feature files are registered here.  State is shared
 between steps via the ``context`` fixture (a plain dict) defined in conftest.py.
 
 Refs: [BL B-20] planning/sprint-zero-plan.md §4, docs/bdd-testing.md
@@ -11,6 +11,7 @@ import pytest
 from cryptography.exceptions import InvalidTag
 from pytest_bdd import given, parsers, scenarios, then, when
 
+from src.core.audit import AuditLogger
 from src.core.blob_codec import BlobCodec
 from src.core.notes import DatabaseStore, Note
 from src.core.security import KeyManager
@@ -25,6 +26,9 @@ scenarios("../features/get_notes.feature")
 scenarios("../features/list_notes.feature")
 scenarios("../features/update_notes.feature")
 scenarios("../features/delete_notes.feature")
+scenarios("../features/search_notes.feature")
+scenarios("../features/reencrypt_note.feature")
+scenarios("../features/audit_log.feature")
 
 
 # ===========================================================================
@@ -345,3 +349,152 @@ def encrypted_note_still_exists(context: dict) -> None:
     fetched = context["store"].get(enc_note.id)
     assert fetched is not None
     assert fetched.encrypted is True
+
+
+# ===========================================================================
+# Sprint 3 — search steps  [BL B-29]
+# ===========================================================================
+
+
+@when(parsers.parse('I search for "{query}"'))
+def search_notes(context: dict, query: str) -> None:
+    context["search_results"] = context["store"].search(query)
+
+
+@then(parsers.parse("{count:d} search result is returned"))
+def search_result_count_singular(context: dict, count: int) -> None:
+    assert len(context["search_results"]) == count
+
+
+@then(parsers.parse("{count:d} search results are returned"))
+def search_result_count(context: dict, count: int) -> None:
+    assert len(context["search_results"]) == count
+
+
+@then(parsers.parse('the first search result has title "{title}"'))
+def first_search_result_title(context: dict, title: str) -> None:
+    assert context["search_results"][0].title == title
+
+
+# ===========================================================================
+# Sprint 3 — reencrypt steps  [BL B-62]
+# ===========================================================================
+
+
+@when(
+    parsers.parse(
+        'I re-encrypt the note from passphrase "{old_pass}" to passphrase "{new_pass}"'
+    )
+)
+def reencrypt_note_new_pass(context: dict, old_pass: str, new_pass: str) -> None:
+    note = context["notes"]["encrypted"]
+    # Decrypt with old passphrase.
+    old_engine = KeyManager(old_pass, iterations=_TEST_ITERATIONS).get_engine()
+    raw_blob = BlobCodec.decrypt(note.blob, old_engine)
+    # Re-encrypt with new passphrase.
+    new_engine = KeyManager(new_pass, iterations=_TEST_ITERATIONS).get_engine()
+    new_blob = BlobCodec.encrypt(raw_blob, new_engine)
+    context["store"].update(note.id, blob=new_blob)
+    context["notes"]["encrypted"] = context["store"].get(note.id)
+    context["last_raw_blob"] = raw_blob
+
+
+@then(parsers.parse('decrypting the note with passphrase "{passphrase}" succeeds'))
+def decrypt_with_new_pass_succeeds(context: dict, passphrase: str) -> None:
+    note = context["notes"]["encrypted"]
+    fetched = context["store"].get(note.id)
+    assert fetched is not None and fetched.blob is not None
+    engine = KeyManager(passphrase, iterations=_TEST_ITERATIONS).get_engine()
+    # Should not raise.
+    BlobCodec.decrypt(fetched.blob, engine)
+
+
+@then(parsers.parse('decrypting the note with passphrase "{passphrase}" fails'))
+def decrypt_with_old_pass_fails(context: dict, passphrase: str) -> None:
+    note = context["notes"]["encrypted"]
+    fetched = context["store"].get(note.id)
+    assert fetched is not None and fetched.blob is not None
+    engine = KeyManager(passphrase, iterations=_TEST_ITERATIONS).get_engine()
+    with pytest.raises(InvalidTag):
+        BlobCodec.decrypt(fetched.blob, engine)
+
+
+@then(
+    parsers.parse(
+        'the decrypted content after re-encryption with "{passphrase}" equals "{expected}"'
+    )
+)
+def reencrypted_content_equals(context: dict, passphrase: str, expected: str) -> None:
+    note = context["notes"]["encrypted"]
+    fetched = context["store"].get(note.id)
+    assert fetched is not None and fetched.blob is not None
+    engine = KeyManager(passphrase, iterations=_TEST_ITERATIONS).get_engine()
+    raw_blob = BlobCodec.decrypt(fetched.blob, engine)
+    _, payload = BlobCodec.decode(raw_blob)
+    assert payload.decode("utf-8") == expected
+
+
+# ===========================================================================
+# Sprint 3 — audit log steps  [BL B-25, B-71]
+# ===========================================================================
+
+
+@given("a fresh audit logger")
+def fresh_audit_logger(context: dict, tmp_path) -> None:
+    context["audit_dir"] = context.get("tmp_path", tmp_path)
+    context["audit"] = AuditLogger(context["audit_dir"])
+
+
+@when(parsers.parse('I log a "{operation}" operation with outcome "{outcome}"'))
+def log_audit_operation(context: dict, operation: str, outcome: str) -> None:
+    context["audit"].log(operation, outcome=outcome)
+
+
+@then(parsers.parse("the audit log has {count:d} entry"))
+def audit_log_has_entries_singular(context: dict, count: int) -> None:
+    entries = context["audit"].read()
+    assert len(entries) == count
+
+
+@then(parsers.parse("the audit log has {count:d} entries"))
+def audit_log_has_entries(context: dict, count: int) -> None:
+    entries = context["audit"].read()
+    assert len(entries) == count
+
+
+@then(parsers.parse('the audit entry has operation "{operation}"'))
+def audit_entry_operation(context: dict, operation: str) -> None:
+    entries = context["audit"].read()
+    assert entries[-1]["operation"] == operation
+
+
+@then(parsers.parse('the audit entry has outcome "{outcome}"'))
+def audit_entry_outcome(context: dict, outcome: str) -> None:
+    entries = context["audit"].read()
+    assert entries[-1]["outcome"] == outcome
+
+
+@then(parsers.parse('reading the audit log filtered by "{operation}" returns {count:d} entries'))
+def audit_filtered_count(context: dict, operation: str, count: int) -> None:
+    entries = context["audit"].read(operation=operation)
+    assert len(entries) == count
+
+
+@then("reading the audit log returns 0 entries")
+def audit_empty_returns_zero(context: dict) -> None:
+    entries = context["audit"].read()
+    assert len(entries) == 0
+
+
+@then(parsers.parse("reading the audit log with limit {limit:d} returns {count:d} entries"))
+def audit_with_limit(context: dict, limit: int, count: int) -> None:
+    entries = context["audit"].read(limit=limit)
+    assert len(entries) == count
+    context["limited_entries"] = entries
+
+
+@then(parsers.parse('the first limited entry has operation "{operation}"'))
+def first_limited_entry_operation(context: dict, operation: str) -> None:
+    entries = context["limited_entries"]
+    assert entries[0]["operation"] == operation
+
