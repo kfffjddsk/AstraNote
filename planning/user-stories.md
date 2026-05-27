@@ -65,7 +65,7 @@
 - Log format: one JSON object per line. Fields: `timestamp` (ISO 8601), `operation` (encrypt/decrypt/passphrase_attempt/override/plugin_load/login/logout/register/delete_account/mode_switch/migrate/export), `note_id` (nullable), `outcome` (success/failure), `detail` (optional string).
 - Encryption, decryption, passphrase attempts, overrides, plugin loads, login, logout, registration, account deletion, mode switches, migration, and export → appended to log.
 - Log file is append-only during normal operation; entries never modified. Per-user log deleted only on `delete-account` (full user data purge).
-- Personal mode: audit log at `<data-dir>/audit.log`. Server mode: per-user audit log at `<data-dir>/users/<hashed_user_id>/audit.log` (SHA-256 of `user_id`). Missing file → created on first write.
+- Audit log at `<data-dir>/audit.log` on the local device (flat layout; no per-user paths on device). `[REQ R8.4]` Missing file → created on first write. On the sync server (if self-hosted), a separate per-account audit log is maintained server-side; per-user server log deleted on `delete-account`.
 - `audit` CLI command with `--limit N`, `--operation <type>`, `--since <date>` filters.
 - Audit file unwritable → warn, do not block the operation.
 
@@ -150,7 +150,6 @@
 - `delete-account` → prompts password + typed `CONFIRM DELETE ACCOUNT`. Detaches `account_id` from all local notes (sets to NULL); deletes account record from server; warns user that cloud copies will be deleted.
 - OAuth 2.0 / OpenID Connect (Google minimum, via authlib) supported as alternative login method in the desktop app. Provider token exchanged for a local session token. `[R13.13, R13.14]`
 
-**Acceptance Criteria:**
 ## US-12: SQLite Local Store and Cloud Sync Backend  `[LOG 05-04]`
 **As a** user, **I want** notes stored reliably in a local SQLite database with an optional path to cloud sync **so that** my data is safe, fast, and portable.
 

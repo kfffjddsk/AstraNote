@@ -5,9 +5,10 @@
 BDD-first approach:
 
 - **BDD** (`tests/steps/test_steps.py`) — 17 Gherkin scenarios for all CLI CRUD behavior.
-- **Unit** (`tests/test_core.py`) — 16 tests for core modules + bounded stress test.
+- **Unit** (`tests/test_core.py`) — 39 tests for core modules + bounded stress test.
+- **CLI integration** (`tests/test_sprint1.py`, `tests/test_sprint2.py`) — Sprint 1 and Sprint 2 CLI, auth, and storage tests.
 
-All CLI tests are Gherkin features in `tests/features/`. No imperative CLI test files.
+All BDD tests are Gherkin features in `tests/features/`. The full suite (Sprint 2 complete) totals 246 tests; 1 skipped on Windows (POSIX permission test).
 
 ## BDD Scenario Coverage
 
@@ -31,8 +32,6 @@ Passphrase required for encrypted note actions:
 Bounded 1001-note test in temp workspace. Validates add, reload, delete without corruption. Marked `stress` for selective runs.
 
 ## Recommended Commands
-
-> **Note (2026-05-07):** All Sprint Zero source code and test files were removed. The commands below will not execute successfully until Sprint Zero is reimplemented. The test counts (17 BDD scenarios, 16 unit tests, 33 total) are the **Sprint Zero baseline targets** to re-establish. Sprint 1 exit criteria (47 tests) assume that 33-test baseline will be achieved first.
 
 Run the full automated suite:
 
@@ -60,9 +59,11 @@ python test_all.py
 
 ---
 
-## Sprint 1 Test Plan
+## Sprint 1 Test Plan *(Historical — Sprint 1 complete)*
 
-Sprint 1 items (B-31–B-40, B-83) require the following new test coverage. All new tests must be BDD scenarios or unit tests as appropriate, and must be added to `tests/features/` or `tests/test_core.py` before the Sprint 1 item can be marked Done.
+> Sprint 1 is done. All items below were completed. See `docs/test-execution-evidence.md` for the Sprint 1 gate pass results.
+
+Sprint 1 items (B-31–B-40, B-83) required the following new test coverage.
 
 ### New BDD Scenarios Required
 

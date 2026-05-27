@@ -288,4 +288,34 @@ TOTAL                       294      0     72      1    99%
 
 ## Sprint 2 Evidence
 
-*(To be filled when Sprint 2 completes.)*
+**Date:** May 2026  
+**Baseline:** Sprint 2 full implementation — account layer, session management, auth hardening, hybrid storage  
+**Environment:** Python 3.12, pytest, pytest-bdd, SQLAlchemy 2.0, cryptography, Windows (PowerShell)  
+**Command:** `.venv\Scripts\python.exe -m pytest tests/ -v --tb=short`
+
+### Result: 245 PASSED / 0 FAILED / 1 SKIPPED
+
+| Suite | Count | Notes |
+|---|---|---|
+| BDD scenarios (`tests/steps/test_steps.py`) | 17 | All CRUD + encryption paths (R1, R2) — unchanged from Sprint Zero |
+| Unit — `test_core.py` | 40 | 39 unit + 1 stress (stress deselected by default) |
+| CLI + unit — `test_sprint1.py` | 68 | Sprint 1 CLI, WAL, plugin, Alembic tests |
+| Auth + storage — `test_sprint2.py` | 106 | AccountStore, auth, session, hybrid storage, CLI auth commands, first-login prompt |
+| Bug regression | 3 | Included in test_sprint2.py |
+| Branch coverage | 8 | Included in test_sprint2.py |
+| **Total** | **246** | **1 skipped** (POSIX permission test — Windows-only skip) |
+
+### Branch Coverage — Core Modules (Sprint 2 complete)
+
+All six core modules at 100% branch coverage: `blob_codec.py`, `notes.py`, `security.py`, `plugin_base.py`, `auth.py`, `AccountStore`.
+
+### Summary of Sprint 2 Test Additions
+
+- `AccountStore`: register, login, logout, rate limiting, session token, delete-account
+- Hybrid storage: 5 MB threshold, filesystem payload orphan cleanup, disk-full (`ENOSPC`) handling
+- Auth prompts: `hide_input=True`, interactive CLI auth commands
+- Session token file permissions, 24h expiry, expired-session behavior (local CRUD unaffected)
+- First-login anonymous note association prompt (one-time, Yes/No/Ask-each)
+- Username validation (3–32 chars, alphanumeric + underscore, case-insensitive)
+- `DATABASE_URL` from env var only; never in config
+- Per-user audit log deletion on `delete-account`

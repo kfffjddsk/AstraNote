@@ -1,4 +1,4 @@
-# Behavior-Driven- Testing for AstraNotes
+# Behavior-Driven Testing for AstraNotes
 
 ## Overview
 
@@ -10,7 +10,7 @@ BDD is the primary approach for CLI testing. All CLI integration tests are Gherk
 
 ## Structure
 
-> **Updated 2026-05-15:** Sprint Zero is fully implemented. All files listed below exist and all 17 BDD scenarios pass.
+> **Updated 2026-05-21:** Sprint 2 is complete. All files listed below exist and all 17 BDD scenarios pass. The full suite (BDD + unit + CLI integration) totals 246 tests across `test_steps.py`, `test_core.py`, `test_sprint1.py`, and `test_sprint2.py`.
 
 ```
 tests/
@@ -76,15 +76,17 @@ python test_all.py
 4. **Update (4)** – unencrypted, not found (`KeyError`), co-existence invariant [B-33], replace encrypted blob
 5. **Delete (4)** – unencrypted, not found (`KeyError`), encrypted, plain delete preserves encrypted [B-33]
 
-### Unit — 23 tests in `tests/test_core.py`
+### Unit — 39 tests in `tests/test_core.py`
 
 | Group | Count | What it covers |
 |-------|-------|----------------|
-| Note dataclass | 5 | UUID, `modified_at`, no-op update, empty title, whitespace content |
-| DatabaseStore CRUD | 9 | add/get/update/delete, missing-ID errors, encrypted blob persistence |
-| list() | 2 | empty store, mixed encryption (content `""`) |
+| Note dataclass | 6 | UUID, `modified_at`, no-op update, empty title, whitespace content, update variants |
+| DatabaseStore add/get | 5 | persistence, encrypted blob, placeholder title |
+| DatabaseStore update | 5 | unencrypted, encrypted (blob replace, content ignored), content-only, not-found |
+| DatabaseStore delete | 2 | remove, not-found |
+| DatabaseStore list | 3 | empty store, mixed encryption, account_id routing |
 | Co-existence invariant | 1 | unencrypted update leaves encrypted blob intact [B-33] |
-| Encryption / BlobCodec | 4 | roundtrip, wrong passphrase, short passphrase, encode/decode roundtrip, full pipeline |
+| Encryption / BlobCodec | 10 | AES-256-GCM roundtrip, public derive_key, wrong passphrase, BlobCodec encode/decode, blob-too-short, truncated-body, full pipeline; KeyManager short/empty/whitespace passphrase |
 | **Injection hardening** | **7** | see section below |
 
 ### Stress — 1 test
