@@ -350,6 +350,81 @@ class TestDatabaseStoreSearch:
         assert note2.id in ids
         assert note3.id not in ids
 
+    # --- Alias / encrypted search edge-cases ---------------------------------
+
+    def test_search_encrypted_alias_matched_without_flag(self, tmp_path: Path) -> None:
+        """Plaintext alias always searchable even without include_encrypted.  [REQ R10.1]"""
+        store = _make_store(tmp_path)
+        enc = make_encrypted_note("Real Title", "secret body", "pass123!",
+                                  alias="Budget Meeting")
+        store.add(enc)
+        results = store.search("Budget")
+        assert len(results) == 1
+        assert results[0].title == "Budget Meeting"
+
+    def test_search_encrypted_alias_match_returns_no_blob(self, tmp_path: Path) -> None:
+        """Alias-matched encrypted note has blob=None — no sensitive data exposed."""
+        store = _make_store(tmp_path)
+        enc = make_encrypted_note("Real Title", "secret body", "pass123!",
+                                  alias="Budget Meeting")
+        store.add(enc)
+        results = store.search("Budget")
+        assert len(results) == 1
+        assert results[0].blob is None  # alias match never exposes blob
+
+    def test_search_default_alias_not_matched_by_content_query(self, tmp_path: Path) -> None:
+        """Default alias '[Encrypted Note]' doesn't match a content-only query."""
+        store = _make_store(tmp_path)
+        enc = make_encrypted_note("[Encrypted Note]", "hidden body", "pass123!")
+        store.add(enc)
+        # Query won't match "[Encrypted Note]" alias, and include_encrypted is False
+        assert store.search("hidden") == []
+
+    def test_search_encrypted_alias_one_result_even_when_include_encrypted(self, tmp_path: Path) -> None:
+        """Alias match takes precedence — note appears only once even with include_encrypted."""
+        store = _make_store(tmp_path)
+        enc = make_encrypted_note("Real", "Budget details", "pass123!",
+                                  alias="Budget Meeting")
+        store.add(enc)
+        results = store.search("Budget", include_encrypted=True)
+        assert len(results) == 1          # deduplicated
+        assert results[0].blob is None    # alias-match bucket, not blob bucket
+
+    def test_search_title_only_match(self, tmp_path: Path) -> None:
+        """A note is returned when query matches title but not content."""
+        store = _make_store(tmp_path)
+        note = Note.create("UniqueKeyword Title", "irrelevant stuff")
+        store.add(note)
+        results = store.search("UniqueKeyword")
+        assert len(results) == 1
+
+    def test_search_content_only_match(self, tmp_path: Path) -> None:
+        """A note is returned when query matches content but not title."""
+        store = _make_store(tmp_path)
+        note = Note.create("Generic Title", "VerySpecificContentKeyword")
+        store.add(note)
+        results = store.search("VerySpecificContentKeyword")
+        assert len(results) == 1
+
+    def test_search_does_not_expose_encrypted_content_without_flag(self, tmp_path: Path) -> None:
+        """Encrypted body never appears in results when include_encrypted=False."""
+        store = _make_store(tmp_path)
+        enc = make_encrypted_note("Real", "confidential payload", "pass123!",
+                                  alias="Work Notes")
+        store.add(enc)
+        # "confidential" is in the encrypted body, NOT in the alias
+        results = store.search("confidential")
+        assert results == []
+
+    def test_search_encrypted_without_alias_match_returns_blob_when_flag(self, tmp_path: Path) -> None:
+        """When alias doesn't match but include_encrypted=True, blob is provided."""
+        store = _make_store(tmp_path)
+        enc = make_encrypted_note("[Encrypted Note]", "confidential payload", "pass123!")
+        store.add(enc)
+        results = store.search("confidential", include_encrypted=True)
+        assert len(results) == 1
+        assert results[0].blob is not None  # blob provided for decryption
+
 
 # ===========================================================================
 # §4  CLI search command
@@ -429,10 +504,104 @@ class TestCliSearch:
         assert result.exit_code == 0
         assert "No notes found" in result.output
 
+    # --- Alias-related CLI search edge-cases ---------------------------------
 
-# ===========================================================================
-# §5  CLI export command
-# ===========================================================================
+    def test_search_shows_alias_of_encrypted_note_without_passphrase(
+        self, tmp_path: Path
+    ) -> None:
+        """Encrypted note with alias returned and alias shown without a passphrase."""
+        runner = CliRunner()
+        store = _make_store(tmp_path)
+        enc = make_encrypted_note("Real Title", "secret body", "pass123!",
+                                  alias="Budget Meeting")
+        store.add(enc)
+        result = _invoke(runner, ["search", "Budget"], tmp_path)
+        assert result.exit_code == 0
+        assert "Budget Meeting" in result.output
+        # Real title must NOT appear (it is inside the encrypted blob)
+        assert "Real Title" not in result.output
+
+    def test_search_alias_match_does_not_require_encrypted_flag(
+        self, tmp_path: Path
+    ) -> None:
+        """Alias is plaintext — no --encrypted flag needed to find it."""
+        runner = CliRunner()
+        store = _make_store(tmp_path)
+        enc = make_encrypted_note("Confidential", "body text", "pass123!",
+                                  alias="Q3 Planning")
+        store.add(enc)
+        result = _invoke(runner, ["search", "Q3"], tmp_path)
+        assert result.exit_code == 0
+        assert "Q3 Planning" in result.output
+
+    def test_search_default_alias_not_exposed_when_content_searched(
+        self, tmp_path: Path
+    ) -> None:
+        """When alias is '[Encrypted Note]' and query matches body — hidden."""
+        runner = CliRunner()
+        store = _make_store(tmp_path)
+        enc = make_encrypted_note("[Encrypted Note]", "hidden content", "pass123!")
+        store.add(enc)
+        result = _invoke(runner, ["search", "hidden"], tmp_path)
+        assert result.exit_code == 0
+        assert "No notes found" in result.output
+
+    def test_search_by_title_matches_plaintext_note(self, tmp_path: Path) -> None:
+        """Title-only match (content doesn't contain query) returns the note."""
+        runner = CliRunner()
+        store = _make_store(tmp_path)
+        note = Note.create("UniqueQueryWord", "completely different body")
+        store.add(note)
+        result = _invoke(runner, ["search", "UniqueQueryWord"], tmp_path)
+        assert result.exit_code == 0
+        assert "UniqueQueryWord" in result.output
+
+    def test_search_by_content_matches_plaintext_note(self, tmp_path: Path) -> None:
+        """Content-only match (title doesn't contain query) returns the note."""
+        runner = CliRunner()
+        store = _make_store(tmp_path)
+        note = Note.create("Generic Title", "SomeVeryUniqueBodyPhrase here")
+        store.add(note)
+        result = _invoke(runner, ["search", "SomeVeryUniqueBodyPhrase"], tmp_path)
+        assert result.exit_code == 0
+        assert "Generic Title" in result.output
+
+    def test_search_with_encrypted_flag_alias_shown_without_decrypt(
+        self, tmp_path: Path
+    ) -> None:
+        """With --encrypted flag, alias-matching note shown without decryption."""
+        runner = CliRunner()
+        store = _make_store(tmp_path)
+        enc = make_encrypted_note("Real", "body", "pass123!", alias="Team Standup")
+        store.add(enc)
+        # Provide a wrong passphrase — alias should still show (no decrypt attempted)
+        result = _invoke(
+            runner, ["search", "--encrypted", "Team"], tmp_path,
+            input="WrongPass!\n"
+        )
+        assert result.exit_code == 0
+        assert "Team Standup" in result.output
+
+    def test_search_with_encrypted_flag_content_match_after_decrypt(
+        self, tmp_path: Path
+    ) -> None:
+        """With --encrypted + correct passphrase, content match found via decryption."""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["--data-dir", str(tmp_path), "add", "--title", "Secret",
+             "--encrypt", "--content", "classified payload"],
+            input="SearchPass1!\nSearchPass1!\n",
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0
+
+        result = _invoke(
+            runner, ["search", "--encrypted", "classified"], tmp_path,
+            input="SearchPass1!\n"
+        )
+        assert result.exit_code == 0
+        assert "classified" in result.output
 
 
 class TestCliExport:
@@ -850,6 +1019,155 @@ class TestCliAudit:
 
 
 # ===========================================================================
+# §9a  PluginRegistry unit tests  [BL B-18, B-38] [REQ R4.3, R4.7]
+# ===========================================================================
+
+
+class TestPluginRegistry:
+    """Unit tests for PluginRegistry registration, hook dispatch, and isolation."""
+
+    def _make_simple_plugin(self, name: str, hook: str = "on_add") -> PluginBase:
+        """Return a PluginBase subclass that registers one hook."""
+        received: list = []
+
+        class _P(PluginBase):
+            pass
+
+        _P.name = name
+        _P.overrides = []
+
+        def _register_hooks(self: PluginBase, r: PluginRegistry) -> None:
+            r.register_hook(hook, self._handler)
+
+        def _handler(self, note):  # type: ignore[override]
+            received.append(note)
+
+        _P.register_hooks = _register_hooks  # type: ignore[method-assign]
+        _P._handler = _handler  # type: ignore[attr-defined]
+        _P._received = received  # type: ignore[attr-defined]
+        return _P()
+
+    def test_register_plugin_calls_register_hooks(self) -> None:
+        """register_plugin must invoke register_hooks so hooks are wired up."""
+        registry = PluginRegistry()
+        called = []
+
+        class _P(PluginBase):
+            name = "p"
+            overrides = []
+
+            def register_hooks(self, r: PluginRegistry) -> None:
+                called.append("registered")
+
+        registry.register_plugin(_P())
+        assert called == ["registered"]
+
+    def test_registered_hook_fires_on_call_hook(self) -> None:
+        """A hook registered in register_hooks must actually fire via call_hook."""
+        registry = PluginRegistry()
+        received: list[Note] = []
+
+        class _P(PluginBase):
+            name = "spy"
+            overrides = []
+
+            def register_hooks(self, r: PluginRegistry) -> None:
+                r.register_hook("on_add", self.on_add)
+
+            def on_add(self, note: Note) -> None:
+                received.append(note)
+
+        registry.register_plugin(_P())
+        note = Note.create("Test", "body")
+        registry.call_hook("on_add", note)
+        assert len(received) == 1
+
+    def test_call_hook_passes_copy_not_original(self) -> None:
+        """Plugins receive a dataclass copy; mutation does not affect original.  [REQ R15.7]"""
+        registry = PluginRegistry()
+        received: list[Note] = []
+
+        class _P(PluginBase):
+            name = "copy_check"
+            overrides = []
+
+            def register_hooks(self, r: PluginRegistry) -> None:
+                r.register_hook("on_add", self.on_add)
+
+            def on_add(self, note: Note) -> None:
+                received.append(note)
+                note.title = "MUTATED"
+
+        registry.register_plugin(_P())
+        original = Note.create("Original", "body")
+        registry.call_hook("on_add", original)
+        assert len(received) == 1
+        assert original.title == "Original"  # mutation did not propagate
+
+    def test_duplicate_plugin_type_silently_skipped(self) -> None:
+        """Registering the same plugin class twice emits a warning and skips.  [REQ R4.3]"""
+        registry = PluginRegistry()
+
+        class _P(PluginBase):
+            name = "dup"
+            overrides = []
+
+            def register_hooks(self, r: PluginRegistry) -> None:
+                pass
+
+        registry.register_plugin(_P())
+        registry.register_plugin(_P())  # second registration — must be skipped
+        assert len(registry._plugins) == 1
+
+    def test_crashing_hook_does_not_propagate(self) -> None:
+        """A hook that raises must not crash the caller.  [REQ R4.7]"""
+        registry = PluginRegistry()
+
+        class _P(PluginBase):
+            name = "crasher"
+            overrides = []
+
+            def register_hooks(self, r: PluginRegistry) -> None:
+                r.register_hook("on_add", self.on_add)
+
+            def on_add(self, note: Note) -> None:
+                raise RuntimeError("plugin bug")
+
+        registry.register_plugin(_P())
+        note = Note.create("T", "b")
+        # Must not raise
+        registry.call_hook("on_add", note)
+
+    def test_unregistered_hook_name_is_no_op(self) -> None:
+        """Calling a hook with no registered handlers is a safe no-op."""
+        registry = PluginRegistry()
+        note = Note.create("T", "b")
+        registry.call_hook("on_nonexistent", note)  # should not raise
+
+    def test_multiple_plugins_all_notified(self) -> None:
+        """All registered plugins receive the hook call."""
+        registry = PluginRegistry()
+        calls: list[str] = []
+
+        for pname in ("alpha", "beta", "gamma"):
+            class _P(PluginBase):
+                name = pname  # type: ignore[assignment]
+                overrides = []
+                _pname = pname
+
+                def register_hooks(self, r: PluginRegistry) -> None:
+                    r.register_hook("on_add", self._cb)
+
+                def _cb(self, note: Note) -> None:
+                    calls.append(self._pname)
+
+            registry.register_plugin(_P())
+
+        registry.call_hook("on_add", Note.create("T", "b"))
+        assert set(calls) == {"alpha", "beta", "gamma"}
+
+
+# ===========================================================================
 # §9  Plugin allowlist
 # ===========================================================================
 
@@ -894,6 +1212,30 @@ class TestPluginAllowlist:
         registry = PluginRegistry()
         loaded = discover_plugins(plugin_dir, registry, allowed_plugins=None)
         assert len(loaded) == 2
+
+    def test_allowlist_partial_allows_subset(self, tmp_path: Path) -> None:
+        """When allowlist contains only one of two plugins, only that one loads."""
+        plugin_dir = tmp_path / "plugins"
+        self._make_plugin_file(plugin_dir, "plugin_c")
+        self._make_plugin_file(plugin_dir, "plugin_d")
+        registry = PluginRegistry()
+        loaded = discover_plugins(
+            plugin_dir, registry, allowed_plugins=frozenset({"plugin_c"})
+        )
+        assert len(loaded) == 1
+        assert loaded[0].name == "plugin_c"
+
+    def test_empty_frozenset_allowlist_blocks_all(self, tmp_path: Path) -> None:
+        """A non-None but empty frozenset is falsy — treated as 'no restriction'."""
+        # frozenset() is falsy so allowed_plugins=frozenset() means no filter
+        plugin_dir = tmp_path / "plugins"
+        self._make_plugin_file(plugin_dir, "plugin_e")
+        registry = PluginRegistry()
+        loaded = discover_plugins(
+            plugin_dir, registry, allowed_plugins=frozenset()
+        )
+        # empty frozenset is falsy → no restriction applied → plugin loads
+        assert len(loaded) == 1
 
 
 # ===========================================================================
@@ -968,6 +1310,78 @@ class TestPluginOverridePolicy:
         registry = PluginRegistry()
         discover_plugins(plugin_dir, registry, override_check_fn=check)
         assert "normal_plugin" not in called
+
+    def test_override_check_fn_none_loads_overriding_plugin(
+        self, tmp_path: Path
+    ) -> None:
+        """When override_check_fn is None, overriding plugins load without a prompt."""
+        plugin_dir = tmp_path / "plugins"
+        self._make_override_plugin(plugin_dir, "unguarded_override")
+        registry = PluginRegistry()
+        # No override_check_fn — overriding plugin must still load
+        loaded = discover_plugins(plugin_dir, registry, override_check_fn=None)
+        assert len(loaded) == 1
+        assert loaded[0].name == "unguarded_override"
+
+    def test_allowlist_blocks_before_override_check(
+        self, tmp_path: Path
+    ) -> None:
+        """A plugin not in the allowlist is rejected BEFORE override_check_fn."""
+        plugin_dir = tmp_path / "plugins"
+        self._make_override_plugin(plugin_dir, "nolist_override")
+        override_called = []
+
+        def check(plugin: PluginBase) -> bool:
+            override_called.append(plugin.name)
+            return True
+
+        registry = PluginRegistry()
+        loaded = discover_plugins(
+            plugin_dir, registry,
+            allowed_plugins=frozenset({"other_plugin"}),  # not in list
+            override_check_fn=check,
+        )
+        assert len(loaded) == 0
+        assert override_called == []  # never reached
+
+    def test_allowlist_and_override_combined_both_must_pass(
+        self, tmp_path: Path
+    ) -> None:
+        """Plugin in allowlist with overrides must still pass override_check_fn."""
+        plugin_dir = tmp_path / "plugins"
+        self._make_override_plugin(plugin_dir, "listed_override")
+        override_called = []
+
+        def check(plugin: PluginBase) -> bool:
+            override_called.append(plugin.name)
+            return True  # approve
+
+        registry = PluginRegistry()
+        loaded = discover_plugins(
+            plugin_dir, registry,
+            allowed_plugins=frozenset({"listed_override"}),
+            override_check_fn=check,
+        )
+        assert len(loaded) == 1
+        assert "listed_override" in override_called  # override check was called
+
+    def test_allowlist_and_override_combined_override_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        """Plugin in allowlist but override rejected by check_fn — not loaded."""
+        plugin_dir = tmp_path / "plugins"
+        self._make_override_plugin(plugin_dir, "listed_override2")
+
+        def check(plugin: PluginBase) -> bool:
+            return False  # reject
+
+        registry = PluginRegistry()
+        loaded = discover_plugins(
+            plugin_dir, registry,
+            allowed_plugins=frozenset({"listed_override2"}),
+            override_check_fn=check,
+        )
+        assert len(loaded) == 0
 
 
 # ===========================================================================

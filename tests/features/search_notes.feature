@@ -33,3 +33,15 @@ Feature: Search notes
     Given an encrypted note exists with title "[Encrypted Note]" content "Hidden secret" passphrase "Pass1234!"
     When I search for "Hidden"
     Then 0 search results are returned
+
+  Scenario: Encrypted note alias is always searchable without a passphrase
+    Given an encrypted note exists with alias "Budget Meeting" title "Real Confidential Title" content "Private figures" passphrase "Pass1234!"
+    When I search for "Budget"
+    Then 1 search result is returned
+    And the first search result has title "Budget Meeting"
+
+  Scenario: Alias shown in results, not the real encrypted title
+    Given an encrypted note exists with alias "Q3 Planning" title "Hidden Real Title" content "Private content" passphrase "Pass1234!"
+    When I search for "Q3"
+    Then 1 search result is returned
+    And the first search result has title "Q3 Planning"

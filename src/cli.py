@@ -919,23 +919,27 @@ def search_cmd(ctx: click.Context, query: str, encrypted: bool) -> None:
     displayed: list[tuple[str, str, str]] = []
     for note in results:
         if note.encrypted:
-            if passphrase is None or note.blob is None:
-                continue
-            try:
-                engine = KeyManager(passphrase).get_engine()
-                raw_blob = BlobCodec.decrypt(note.blob, engine)
-                _, payload = BlobCodec.decode(raw_blob)
-                decrypted_content = payload.decode("utf-8")
-                if (query.lower() in (note.title or "").lower()
-                        or query.lower() in decrypted_content.lower()):
-                    preview = _strip_ansi(decrypted_content)[:80]
-                    displayed.append((note.id, note.title, preview))
-                    audit.log("decrypt", note_id=note.id, outcome="success",
+            if note.blob is None:
+                # Alias (plaintext title) matched the query — display as-is,
+                # no passphrase required.  [REQ R10.1]
+                displayed.append((note.id, note.title, ""))
+            elif passphrase is not None:
+                # Blob loaded for content-level decryption.  [REQ R10.3]
+                try:
+                    engine = KeyManager(passphrase).get_engine()
+                    raw_blob = BlobCodec.decrypt(note.blob, engine)
+                    _, payload = BlobCodec.decode(raw_blob)
+                    decrypted_content = payload.decode("utf-8")
+                    if query.lower() in decrypted_content.lower():
+                        preview = _strip_ansi(decrypted_content)[:80]
+                        displayed.append((note.id, note.title, preview))
+                        audit.log("decrypt", note_id=note.id, outcome="success",
+                                  detail="search")
+                except (InvalidTag, ValueError):
+                    # Wrong passphrase or corrupt — silently skip.  [REQ R10.3]
+                    audit.log("passphrase_attempt", note_id=note.id, outcome="failure",
                               detail="search")
-            except (InvalidTag, ValueError):
-                # Wrong passphrase or corrupt — silently skip.  [REQ R10.3]
-                audit.log("passphrase_attempt", note_id=note.id, outcome="failure",
-                          detail="search")
+            # else: blob present but no passphrase (--encrypted not given) — skip
         else:
             preview = _strip_ansi(note.content or "")[:80]
             displayed.append((note.id, note.title, preview))

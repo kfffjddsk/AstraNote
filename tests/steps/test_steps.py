@@ -64,6 +64,19 @@ def encrypted_note_exists(context: dict, title: str, content: str, passphrase: s
     context["notes"]["encrypted"] = note
 
 
+@given(
+    parsers.parse(
+        'an encrypted note exists with alias "{alias}" title "{title}" content "{content}" passphrase "{passphrase}"'
+    )
+)
+def encrypted_note_with_alias_exists(
+    context: dict, alias: str, title: str, content: str, passphrase: str
+) -> None:
+    note = make_encrypted_note(title, content, passphrase, alias=alias)
+    context["store"].add(note)
+    context["notes"]["encrypted"] = note
+
+
 # ===========================================================================
 # When — actions
 # ===========================================================================
