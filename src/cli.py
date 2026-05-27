@@ -936,10 +936,16 @@ def search_cmd(ctx: click.Context, query: str, encrypted: bool) -> None:
     decrypted_ids: set[str] = set()
 
     # --- Step 2: decryption pass — only when --encrypted given ---
-    # Fetch all in-scope encrypted notes, decrypt in memory, match real
-    # title and content.  Decrypted notes act exactly like plain notes.
-    # [REQ R10.3]
+    # Build the engine ONCE from the passphrase and reuse it for every note.
+    # This validates the passphrase a single time and avoids creating
+    # separate KeyManager / EncryptionEngine objects per note.  [REQ R10.3]
     if encrypted and passphrase is not None:
+        try:
+            engine = KeyManager(passphrase).get_engine()
+        except ValueError as exc:
+            click.echo(f"Error: {exc}", err=True)
+            sys.exit(1)
+
         account_notes, local_notes = store.list(account_id)
         for stub in account_notes + local_notes:
             if not stub.encrypted:
@@ -948,7 +954,6 @@ def search_cmd(ctx: click.Context, query: str, encrypted: bool) -> None:
             if full_note is None or full_note.blob is None:
                 continue
             try:
-                engine = KeyManager(passphrase).get_engine()
                 raw_blob = BlobCodec.decrypt(full_note.blob, engine)
                 header, payload = BlobCodec.decode(raw_blob)
                 real_title = header.get("title", stub.title)
@@ -961,7 +966,7 @@ def search_cmd(ctx: click.Context, query: str, encrypted: bool) -> None:
                     audit.log("decrypt", note_id=stub.id, outcome="success",
                               detail="search")
             except (InvalidTag, ValueError):
-                # Wrong passphrase — silently skip decryption.  [REQ R10.3]
+                # Wrong passphrase or corrupt blob — silently skip.  [REQ R10.3]
                 audit.log("passphrase_attempt", note_id=stub.id,
                           outcome="failure", detail="search")
 
