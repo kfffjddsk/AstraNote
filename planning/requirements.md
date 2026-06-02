@@ -142,7 +142,7 @@ Find notes and export to external formats.
 |----|-------------|
 | R10.1 | `search <query>` → case-insensitive substring match on title and content |
 | R10.2 | Search results show: ID, title, first 80 chars of content |
-| R10.3 | Encrypted notes excluded from search unless `--encrypted` flag used (prompts passphrase once); notes with mismatched passphrase silently skipped |
+| R10.3 | Encrypted notes excluded from search unless `--encrypted` flag used; prompts passphrase **per note individually** (each note may use a different passphrase); press Enter to skip a note; notes with wrong or skipped passphrase fall back to alias match only |
 | R10.4 | `export --format text|json --output <file>` writes notes to file (default: `<data-dir>/export.<format>`). For binary notes, export writes raw payload file to per-user exports directory and includes path reference in the export manifest |
 | R10.5 | `export --encrypted` → prompt passphrase once, decrypt all for export; without flag → `[Encrypted Note]` |
 | R10.6 | Export 1000+ notes within 2 seconds |

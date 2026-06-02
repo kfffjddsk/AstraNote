@@ -1108,11 +1108,11 @@ Maps each requirement group to the implementing module, class, and test coverage
 | R4.10 Plugin allowlist | *(planned)* `src/core/plugin_base.py` | startup loader + config | `[BL B-69]` |
 | R5.1 `--data-dir` global option | *(planned)* `src/cli.py` | `cli()` | `[BL B-19]` — not yet tested |
 | R5.2 Non-zero exit on error | *(planned)* `src/cli.py` | `raise click.ClickException` | `[BL B-23]` — not yet tested |
-| R7 Override policy | *(planned)* `src/cli.py` | new guard | `[BL B-24]` |
-| R8 Audit trail | *(planned)* `src/core/` | `AuditLogger` | `[BL B-25, B-71]` |
-| R9 Config module | *(planned)* `src/core/` | `ConfigStore` | `[BL B-26]` |
-| R10.1–R10.3 Search | *(planned)* `src/cli.py` | `search()` command | `[BL B-29]` |
-| R10.4–R10.7 Export | *(planned)* `src/cli.py` | `export()` command | `[BL B-30, B-76, B-78]` |
+| R7 Override policy | ✅ `src/cli.py` + `src/core/plugin_base.py` | red warning + `CONFIRM OVERRIDE` prompt | `[BL B-24]` |
+| R8 Audit trail | ✅ `src/core/audit.py` | `AuditLogger` — append-only JSON log | `[BL B-25, B-71]` |
+| R9 Config module | ✅ `src/core/config.py` | `ConfigStore` — known-key whitelist, set/get/list/reset | `[BL B-26]` |
+| R10.1–R10.3 Search | ✅ `src/cli.py` | `search_cmd()` — DB layer returns `blob=None` for encrypted notes; `--encrypted` prompts passphrase **per note** (each note may use a different passphrase) | `[BL B-29]` |
+| R10.4–R10.7 Export | ✅ `src/cli.py` | `export_cmd()` — text/JSON, `--output`, `--encrypted`, binary payloads, `--cleanup` | `[BL B-30, B-76, B-78]` |
 | R12 Local-first architecture with opt-in account | *(planned)* `src/cli.py` | `get_store()` startup factory; first-login prompt (one-time) | `[BL B-41, B-42]` |
 | R13 Authentication | *(planned)* `src/core/` | `AuthManager` | `[BL B-45–B-47, B-57–B-61]` |
 | R14.1–R14.13 Database backend | *(planned)* `src/core/` | `DatabaseStore` | `[BL B-42–B-44, B-51, B-63–B-68]` |

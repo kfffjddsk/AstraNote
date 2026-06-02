@@ -10,16 +10,19 @@ BDD is the primary approach for CLI testing. All CLI integration tests are Gherk
 
 ## Structure
 
-> **Updated 2026-05-21:** Sprint 2 is complete. All files listed below exist and all 17 BDD scenarios pass. The full suite (BDD + unit + CLI integration) totals 246 tests across `test_steps.py`, `test_core.py`, `test_sprint1.py`, and `test_sprint2.py`.
+> **Updated May 2026 (Sprint 3):** Sprint 3 is complete. All 30 BDD scenarios pass. The full suite totals 396 tests across `test_steps.py`, `test_core.py`, `test_sprint1.py`, `test_sprint2.py`, and `test_sprint3.py`. Three new feature files were added in Sprint 3: `search_notes.feature`, `reencrypt_note.feature`, and `audit_log.feature`.
 
 ```
 tests/
 ├── features/          # .feature files describing behaviors
 │   ├── add_notes.feature
+│   ├── audit_log.feature       # Sprint 3
+│   ├── delete_notes.feature
 │   ├── get_notes.feature
 │   ├── list_notes.feature
-│   ├── update_notes.feature
-│   └── delete_notes.feature
+│   ├── reencrypt_note.feature  # Sprint 3
+│   ├── search_notes.feature    # Sprint 3
+│   └── update_notes.feature
 ├── steps/             # Step definitions in Python
 │   └── test_steps.py
 ├── test_core.py       # Unit tests for core modules
@@ -31,10 +34,13 @@ tests/
 Gherkin scenarios organized by feature:
 
 - `add_notes.feature` – encrypted/unencrypted add, invalid input
+- `audit_log.feature` – audit entries for add/delete/login/export *(Sprint 3)*
 - `list_notes.feature` – mixed encryption list, empty list
 - `get_notes.feature` – passphrase validation, wrong key, missing note
 - `update_notes.feature` – correct/wrong passphrase, missing note
 - `delete_notes.feature` – correct/wrong passphrase, missing note
+- `search_notes.feature` – plain search, encrypted alias match, per-note passphrase prompt, wrong-passphrase fallback *(Sprint 3)*
+- `reencrypt_note.feature` – passphrase rotation success, wrong-passphrase rejection *(Sprint 3)*
 
 ## Step Definitions
 
@@ -68,13 +74,16 @@ python test_all.py
 
 ## Test Coverage
 
-### BDD — 17 scenarios across 5 feature files
+### BDD — 30 scenarios across 8 feature files
 
 1. **Add (3)** – unencrypted, encrypted, reject empty title
 2. **Get (4)** – unencrypted, correct passphrase decrypt, wrong passphrase (`InvalidTag`), not found
 3. **List (2)** – mixed encryption (content always hidden in listing), empty store
 4. **Update (4)** – unencrypted, not found (`KeyError`), co-existence invariant [B-33], replace encrypted blob
 5. **Delete (4)** – unencrypted, not found (`KeyError`), encrypted, plain delete preserves encrypted [B-33]
+6. **Search (7)** *(Sprint 3)* – plain text match, encrypted alias match, `--encrypted` per-note passphrase prompt, wrong passphrase fallback to alias, skip empty passphrase, duplicate deduplication, no results
+7. **Reencrypt (2)** *(Sprint 3)* – passphrase rotation roundtrip, wrong current passphrase rejection
+8. **Audit log (4)** *(Sprint 3)* – audit entries for add/delete/login/export events
 
 ### Unit — 39 tests in `tests/test_core.py`
 

@@ -85,7 +85,7 @@ Items ordered by priority. Status reflects current state.
 
 ## Sprint 3 — ✅ Done
 
-> **Goal:** Plugin hardening, audit trail, config module, search, and export.
+> **Goal:** Plugin hardening, audit trail, config module, search, and export. Completed May 2026 — 396 tests passing (397 collected, 1 skipped). BDD: 30 scenarios across 8 feature files. Key design refinement: `DatabaseStore.search()` never exposes encrypted blobs; `--encrypted` flag prompts passphrase **per note** (each note may have a different passphrase).
 
 | ID | Item | User Story | Priority | Status |
 |----|------|------------|----------|--------|

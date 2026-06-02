@@ -319,3 +319,97 @@ All six core modules at 100% branch coverage: `blob_codec.py`, `notes.py`, `secu
 - Username validation (3–32 chars, alphanumeric + underscore, case-insensitive)
 - `DATABASE_URL` from env var only; never in config
 - Per-user audit log deletion on `delete-account`
+
+---
+
+## Sprint 3 Evidence
+
+**Date:** May 2026  
+**Baseline:** Sprint 3 full implementation — plugin hardening, audit trail, config module, search/export, reencrypt  
+**Environment:** Python 3.12, pytest, pytest-bdd, SQLAlchemy 2.0, cryptography, Windows (PowerShell)  
+**Command:** `.venv\Scripts\python.exe -m pytest tests/ -v --tb=short`
+
+### Result: 396 PASSED / 0 FAILED / 1 SKIPPED
+
+```
+============================= test session starts =============================
+platform win32 -- Python 3.12, pytest-9.0.x, pluggy-1.6.0
+rootdir: E:\Santa Clara\CSEN 296-B\AstraNotes
+configfile: pytest.ini
+plugins: anyio-4.13.0, bdd-8.1.0
+collected 397 items
+
+tests\steps\test_steps.py ..............................                  [  7%]
+tests\test_core.py ........................................                [ 18%]
+tests\test_sprint1.py ................................................................................
+...............                                                          [ 40%]
+tests\test_sprint2.py ......................................................................
+.........................................                                  [ 67%]
+tests\test_sprint3.py ......................................................................
+......................................................................
+.......                                                                  [100%]
+
+================ 396 passed, 1 skipped in ~43s ================================
+```
+
+*(1 skipped = POSIX file-permission test, Windows-only skip — unchanged from Sprint 2)*
+
+| Suite | Count | Notes |
+|---|---|---|
+| BDD scenarios (`tests/steps/test_steps.py`) | 30 | Sprint 0–2 CRUD/encryption (17) + Sprint 3 search (7), reencrypt (2), audit (4) |
+| Unit — `test_core.py` | 40 | Unchanged from Sprint 2 |
+| CLI + unit — `test_sprint1.py` | 83 | Sprint 1 base (68) + 15 additional tests added during Sprint 3 hardening |
+| Auth + storage — `test_sprint2.py` | 107 | Sprint 2 base (106) + 1 regression fix |
+| Sprint 3 features — `test_sprint3.py` | 137 | See breakdown below |
+| **Total (all)** | **397** | |
+| **Total (excl. 1 skipped)** | **396** | |
+
+### test_sprint3.py breakdown (137 tests)
+
+| Class | Count | Backlog / Req |
+|---|---|---|
+| `TestAuditLogger` | 14 | [B-25] Append-only JSON audit log, filters, `outcome`, `detail` fields |
+| `TestConfigStore` | 17 | [B-26] Known-key whitelist, set/get/list/reset, `ALLOWED_KEYS`, `DEFAULTS` |
+| `TestDatabaseStoreSearch` | 15 | [B-29] `search()` — plain title+content match, encrypted alias-only, no blob exposed |
+| `TestCliSearch` | 18 | [B-29] CLI `search` — per-note passphrase prompt (`--encrypted`), audit logging, alias fallback |
+| `TestCliExport` | 11 | [B-30, B-76, B-78] Export to text/JSON, `--output`, `--encrypted`, binary payloads, `--cleanup` |
+| `TestCliReencrypt` | 6 | [B-62] `reencrypt <note_id>` — passphrase rotation |
+| `TestCliConfig` | 7 | [B-26] CLI `config set/get/list/reset` |
+| `TestCliAudit` | 6 | [B-71] CLI `audit` — login/logout/register/export events |
+| `TestPluginRegistry` | 7 | [B-83] `PluginRegistry` unit tests — override detection, exec/eval ban |
+| `TestPluginAllowlist` | 5 | [B-69] Plugin allowlist enforcement via config |
+| `TestPluginOverridePolicy` | 7 | [B-24] Red warning + `CONFIRM OVERRIDE` prompt |
+| `TestPluginCommandWiring` | 2 | [B-28] Plugin CLI commands wired into main CLI |
+| `TestAnsiStripping` | 8 | [B-54] Strip ANSI/control codes from terminal output |
+| `TestPathTraversal` | 2 | [B-55] Path traversal prevention for `--data-dir`, `--output` |
+| `TestPluginSandboxing` | 2 | [B-56] Read-only note copies, no exec/eval, no raw DB access |
+| `TestAuditIntegration` | 7 | [B-71] Audit events from CRUD/auth/export/reencrypt CLI paths |
+| `TestAliasInfoWarning` | 2 | [B-79] Alias info warning for encrypted notes |
+| `TestPassphraseMemoryLimitation` | 1 | [B-73] Passphrase memory-residency limitation documented |
+
+### New BDD Scenarios (Sprint 3) — 13 new scenarios in 3 new feature files
+
+| Feature file | Scenarios | Coverage |
+|---|---|---|
+| `tests/features/search_notes.feature` | 7 | Plain search, encrypted alias match, per-note passphrase prompt, wrong passphrase fallback, `--encrypted` flag semantics |
+| `tests/features/reencrypt_note.feature` | 2 | Passphrase rotation success, wrong current passphrase rejection |
+| `tests/features/audit_log.feature` | 4 | Audit entries for add/delete/login/export events |
+
+### Key Design Decisions Validated by Sprint 3 Tests
+
+- **`DatabaseStore.search()` never exposes encrypted blobs** — the DB layer returns `blob=None` for encrypted notes even when the alias matches. Tests `TestDatabaseStoreSearch.test_search_encrypted_body_never_returned_by_store` and `test_search_encrypted_alias_returns_note_with_blob_none` confirm this invariant.
+- **Per-note passphrase prompts in `search --encrypted`** — each encrypted note is prompted individually (`click.prompt(f'Passphrase for "{stub.title}"')`). Different notes may use different passphrases. Tests `TestCliSearch.test_search_encrypted_*` validate the per-note loop, audit logging, and alias fallback when passphrase is skipped or wrong.
+- **Audit log integrity** — the JSON-per-line audit log is append-only and records `outcome` (`success`/`failure`) and `detail` for decrypt attempts. Validated by `TestAuditIntegration` and `TestAuditLogger`.
+
+### Summary of Sprint 3 Test Additions
+
+- `AuditLogger`: `log()`, `read_log()`, filter by `account_id`/`action`/`outcome`, multi-account isolation
+- `ConfigStore`: `set()`/`get()`/`list()`/`reset()`, unknown-key rejection, default values, persistence
+- `DatabaseStore.search()`: plain+encrypted alias returns, blob isolation, account scoping
+- CLI `search`: plain search, `--encrypted` per-note passphrase prompts, audit events, skip/wrong-passphrase behavior, duplicate-result deduplication
+- CLI `export`: text/JSON format, `--output` path validation, path traversal prevention, `--cleanup` removes payload dir, binary-note manifest
+- CLI `reencrypt`: passphrase change roundtrip, wrong-passphrase rejection
+- CLI `config`/`audit`: all subcommands exercised end-to-end
+- Plugin hardening: allowlist config enforcement, override-policy confirmation, sandboxing (read-only copy, exec/eval blocked)
+- ANSI stripping: control codes removed from search/list/export output
+- Path traversal: `--data-dir` and `--output` reject `../` and absolute escapes

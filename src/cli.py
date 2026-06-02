@@ -888,9 +888,10 @@ def reencrypt_cmd(ctx: click.Context, note_id: str) -> None:
 @click.option(
     "--encrypted", "-e", is_flag=True, default=False,
     help=(
-        "Also search inside encrypted notes: prompts passphrase once, decrypts "
-        "each note in memory, and searches the real title and content.  "
-        "Decrypted notes are treated exactly like plain notes.  [REQ R10.3]"
+        "Also search inside encrypted notes: prompts for each note's passphrase "
+        "individually (press Enter to skip a note).  Each note may have its own "
+        "passphrase.  Successfully decrypted notes are searched by real title and "
+        "content and act like plain notes.  [REQ R10.3]"
     ),
 )
 @click.pass_context
@@ -903,10 +904,8 @@ def search_cmd(ctx: click.Context, query: str, encrypted: bool) -> None:
 
     With --encrypted:
       - Same as above, PLUS every encrypted note is decrypted in memory.
-        Successfully decrypted notes are searched by their real title and
-        content (acting like plain notes).  Wrong-passphrase notes are
-        silently skipped (except for an alias match, which still shows).
-        [REQ R10.3]
+        Each note is prompted for its own passphrase (press Enter to skip).
+        Different notes may have different passphrases.  [REQ R10.3]
     """
     store: DatabaseStore = ctx.obj["store"]
     audit: AuditLogger = ctx.obj["audit"]
@@ -921,12 +920,6 @@ def search_cmd(ctx: click.Context, query: str, encrypted: bool) -> None:
     session_data = SessionManager.load(data_dir)
     account_id = session_data["account_id"] if session_data else None
 
-    passphrase: Optional[str] = None
-    if encrypted:
-        passphrase = click.prompt(
-            "Passphrase for encrypted notes", hide_input=True
-        )
-
     # --- Step 1: plain title+content matches + encrypted alias matches ---
     # search() never exposes blobs; encrypted notes returned only when their
     # alias matches the query.  [REQ R10.1]
@@ -936,16 +929,9 @@ def search_cmd(ctx: click.Context, query: str, encrypted: bool) -> None:
     decrypted_ids: set[str] = set()
 
     # --- Step 2: decryption pass — only when --encrypted given ---
-    # Build the engine ONCE from the passphrase and reuse it for every note.
-    # This validates the passphrase a single time and avoids creating
-    # separate KeyManager / EncryptionEngine objects per note.  [REQ R10.3]
-    if encrypted and passphrase is not None:
-        try:
-            engine = KeyManager(passphrase).get_engine()
-        except ValueError as exc:
-            click.echo(f"Error: {exc}", err=True)
-            sys.exit(1)
-
+    # Each encrypted note may have its own passphrase, so we prompt per-note.
+    # Press Enter (empty input) to skip a note.  [REQ R10.3]
+    if encrypted:
         account_notes, local_notes = store.list(account_id)
         for stub in account_notes + local_notes:
             if not stub.encrypted:
@@ -953,7 +939,16 @@ def search_cmd(ctx: click.Context, query: str, encrypted: bool) -> None:
             full_note = store.get(stub.id)
             if full_note is None or full_note.blob is None:
                 continue
+            note_passphrase = click.prompt(
+                f'Passphrase for "{stub.title}" (Enter to skip)',
+                default="",
+                hide_input=True,
+                show_default=False,
+            )
+            if not note_passphrase:
+                continue
             try:
+                engine = KeyManager(note_passphrase).get_engine()
                 raw_blob = BlobCodec.decrypt(full_note.blob, engine)
                 header, payload = BlobCodec.decode(raw_blob)
                 real_title = header.get("title", stub.title)
