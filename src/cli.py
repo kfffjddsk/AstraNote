@@ -885,27 +885,12 @@ def reencrypt_cmd(ctx: click.Context, note_id: str) -> None:
 
 @cli.command("search")
 @click.argument("query")
-@click.option(
-    "--encrypted", "-e", is_flag=True, default=False,
-    help=(
-        "Also search inside encrypted notes: prompts for each note's passphrase "
-        "individually (press Enter to skip a note).  Each note may have its own "
-        "passphrase.  Successfully decrypted notes are searched by real title and "
-        "content and act like plain notes.  [REQ R10.3]"
-    ),
-)
 @click.pass_context
-def search_cmd(ctx: click.Context, query: str, encrypted: bool) -> None:
-    """Search notes by title and content.  [BL B-29] [REQ R10.1–R10.3]
+def search_cmd(ctx: click.Context, query: str) -> None:
+    """Search notes by title and content.  [BL B-29] [REQ R10.1, R10.2]
 
-    Without --encrypted:
-      - Plain notes matched by title and content.
-      - Encrypted notes matched by alias title only; content never exposed.
-
-    With --encrypted:
-      - Same as above, PLUS every encrypted note is decrypted in memory.
-        Each note is prompted for its own passphrase (press Enter to skip).
-        Different notes may have different passphrases.  [REQ R10.3]
+    Plain notes are matched by title and content.
+    Encrypted notes are matched by alias title only; content is never exposed.
     """
     store: DatabaseStore = ctx.obj["store"]
     audit: AuditLogger = ctx.obj["audit"]
@@ -920,74 +905,20 @@ def search_cmd(ctx: click.Context, query: str, encrypted: bool) -> None:
     session_data = SessionManager.load(data_dir)
     account_id = session_data["account_id"] if session_data else None
 
-    # --- Step 1: plain title+content matches + encrypted alias matches ---
-    # search() never exposes blobs; encrypted notes returned only when their
-    # alias matches the query.  [REQ R10.1]
-    plain_and_alias = store.search(query, account_id=account_id)
+    results = store.search(query, account_id=account_id)
 
-    displayed: list[tuple[str, str, str]] = []
-    decrypted_ids: set[str] = set()
-
-    # --- Step 2: decryption pass — only when --encrypted given ---
-    # Each encrypted note may have its own passphrase, so we prompt per-note.
-    # Press Enter (empty input) to skip a note.  [REQ R10.3]
-    if encrypted:
-        account_notes, local_notes = store.list(account_id)
-        for stub in account_notes + local_notes:
-            if not stub.encrypted:
-                continue
-            full_note = store.get(stub.id)
-            if full_note is None or full_note.blob is None:
-                continue
-            note_passphrase = click.prompt(
-                f'Passphrase for "{stub.title}" (Enter to skip)',
-                default="",
-                hide_input=True,
-                show_default=False,
-            )
-            if not note_passphrase:
-                continue
-            try:
-                engine = KeyManager(note_passphrase).get_engine()
-                raw_blob = BlobCodec.decrypt(full_note.blob, engine)
-                header, payload = BlobCodec.decode(raw_blob)
-                real_title = header.get("title", stub.title)
-                decrypted_content = payload.decode("utf-8")
-                if (query.lower() in real_title.lower()
-                        or query.lower() in decrypted_content.lower()):
-                    preview = _strip_ansi(decrypted_content)[:80]
-                    displayed.append((stub.id, real_title, preview))
-                    decrypted_ids.add(stub.id)
-                    audit.log("decrypt", note_id=stub.id, outcome="success",
-                              detail="search")
-            except (InvalidTag, ValueError):
-                # Wrong passphrase or corrupt blob — silently skip.  [REQ R10.3]
-                audit.log("passphrase_attempt", note_id=stub.id,
-                          outcome="failure", detail="search")
-
-    # --- Step 3: add alias + plain results, skip already-decrypted notes ---
-    # A note already shown via Step 2 (decrypted) must not appear again as
-    # an alias match, to prevent duplicates.
-    for note in plain_and_alias:
-        if note.id in decrypted_ids:
-            continue  # already displayed with real title+content
-        if note.encrypted:
-            # Alias matched — display the alias, no passphrase required.
-            displayed.append((note.id, note.title, ""))
-        else:
-            preview = _strip_ansi(note.content or "")[:80]
-            displayed.append((note.id, note.title, preview))
-
-    if not displayed:
+    if not results:
         click.echo("No notes found.")
         return
 
     audit.log("search", outcome="success", detail=f"query={query!r}")
 
-    for nid, title, preview in displayed:
-        click.echo(f"{nid}  {_strip_ansi(title)}")
-        if preview:
-            click.echo(f"    {preview}")
+    for note in results:
+        click.echo(f"{note.id}  {_strip_ansi(note.title)}")
+        if not note.encrypted:
+            preview = _strip_ansi(note.content or "")[:80]
+            if preview:
+                click.echo(f"    {preview}")
 
 
 # ---------------------------------------------------------------------------
