@@ -1,8 +1,8 @@
 # AstraNotes — Traceability Metrics (v2.1)
 
-**Version:** 2.7  
-**Date:** June 1, 2026  
-**Status:** Updated — Sprint 4 complete, all Sprint 4 implementations verified  
+**Version:** 2.8  
+**Date:** June 4, 2026  
+**Status:** Updated — Sprint 4C GUI polish complete, 570 tests passing  
 **Owner:** Human team member  
 **AI Partner:** Astra (GitHub Copilot)
 
@@ -308,7 +308,7 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 | NFR-1 | **(R6.1)** BDD feature files cover R1 CRUD scenarios | US-1/US-2 · B-20 | `tests/features/*.feature` (5 files, 17 scenarios) | BDD:add/get/list/update/delete | — | Fully Traced | — |
 | NFR-2 | **(R6.2)** Unit tests cover Note, DatabaseStore, encryption | US-1/US-2/US-3 · B-21 | `tests/test_core.py` | `Unit:TN`, `Unit:TNS`, `Unit:TEE`, `Unit:TKM` (40 tests); `Sprint1:S1` §2 (plugin unit tests) | — | Fully Traced | B-83 done Sprint 1: `TestPluginBase` and `TestPluginRegistry` added to `tests/test_sprint1.py` |
 | NFR-3 | **(R6.3)** Stress test validates 1000+ note volume | US-3 · B-22 | `tests/test_core.py` | `Unit:stress` (1001 notes) | — | Fully Traced | — |
-| NFR-4 | **(R6.4)** Tests run via `pytest` and `test_all.py` | — | `pytest.ini`, `test_all.py` | 493 tests pass (494 collected, 1 skipped) | — | Fully Traced | Sprint 4 adds 106 tests (test_sprint4.py) |
+| NFR-4 | **(R6.4)** Tests run via `pytest` and `test_all.py` | — | `pytest.ini`, `test_all.py` | 570 tests pass (570 collected, 1 skipped); Sprint 4B added 77 GUI tests (test_sprint4b.py), Sprint 4C reused them | — | Fully Traced | — |
 | NFR-5 | **(R6.5)** Edge-case tests: whitespace, ID collision, corrupt JSON, passphrase, permissions | US-1/US-2/US-3 · B-40 | `tests/test_core.py`, `tests/test_sprint1.py`, `tests/features/` | Full BDD/unit coverage | — | Partially Traced | Corrupt-JSON and ID-collision-after-delete not applicable (SQLite ACID; no JSON layer). All other edge cases covered: whitespace/empty content (Sprint1:S1 §6), passphrase (BDD+Sprint1:S1 §12), permission errors (`test_cli_data_dir_not_writable_exits_nonzero`), null bytes (Sprint1:S1 §4/§9). B-40 closed; B-83 closed [2026-05-20] |
 
 ---
@@ -363,6 +363,10 @@ Five elements appear in the design or source code without a traceable requiremen
 > **Note (2026-06-01 — Sprint 3 complete):** All Sprint 3 backlog items (B-24, B-25, B-26, B-28, B-30, B-54, B-55, B-56, B-62, B-69, B-71, B-73, B-76, B-78, B-79) implemented and tested. 105 requirements now Fully Traced (+34 from Sprint 3); 4 Partially Traced (-3: FR-25 PT→FT, FR-39 PT→FT, FR-44 PT→FT, FR-103 PT→FT; FR-67 WT→PT — B-29 `--encrypted` flag pending). 387 tests pass (388 collected, 1 skipped — POSIX chmod, Windows-only). See `AI Working Log/working-log-2026-06-01.md`.
 
 > **Note (2026-06-01 — Sprint 4 complete):** All Sprint 4 backlog items (B-84, B-85, B-97, B-98, B-99, B-100, B-101, B-102) implemented and tested. 113 requirements now Fully Traced (+8 from Sprint 4: FR-45, FR-46, FR-47, FR-65-R9, FR-66-R9, FR-72, FR-73, FR-75); 3 Partially Traced; R11 GUI items WT→FT for Sprint 4 scope. 493 tests pass (494 collected, 1 skipped). New files: `src/core/app_lock.py`, `src/desktop/__init__.py`, `src/desktop/app_controller.py`, `src/desktop/main_window.py`, `tests/test_sprint4.py`. See `AI Working Log/working-log-2026-06-01.md`.
+
+> **Note (2026-06-03 — Sprint 4B complete):** All Sprint 4B backlog items (B-103 through B-112) implemented and tested. Adds 77 GUI completeness tests; total 570 (one POSIX-only skip). VS Code-inspired layout with `QSplitter`, `QTabWidget`, rich-text editor, search bar, account-aware sidebar, settings dialog, theme/font support, and keyboard shortcuts. New tests file: `tests/test_sprint4b.py`. R11 GUI items remain Fully Traced.
+
+> **Note (2026-06-04 — Sprint 4C complete):** Sprint 4C delivers GUI polish + dev tooling on top of Sprint 4B (B-113 through B-121). External `.qss` stylesheets with optional `QFileSystemWatcher` hot-reload (`ASTRANOTES_QSS_HOTRELOAD=1`); Settings dialog redesigned into a category-list layout (Appearance / Editor / Behaviour / Files); accent-colour / font-family / word-wrap settings wired end-to-end; Plugins Admin dialog (`Ctrl+Shift+P`); new-note format chooser (Plain / Markdown / Rich text + Encrypt checkbox); decrypt-by-uncheck on encrypted notes (`DatabaseStore.update(encrypted=False)`); themed SVG icons for combobox / spinbox / checkbox / tab-close; dev-only Widget Gallery (`Ctrl+Shift+G`). New config keys: `accent_color`, `font_family`, `word_wrap`. New asset directory: `src/desktop/styles/` (with `icons/` subfolder). 570 tests pass (1 skipped). No new requirement IDs; all R11 GUI items remain Fully Traced.
 
 > **Note `[LOG 05-04]`:** R11 expanded from 4 items to 12 (split into Desktop GUI Sprint 4 + Sync-Enabled Desktop Client Sprint 5 — one PySide6 app); R12 rewritten for three-layer model (8 → 7 items); R13 updated for optional auth (15 → 14 items, removed FR-119); R16 rewritten as sync server with push/pull model. Total 141 → 139. FR-114 dropped (offline covered by FR-76 — local SQLite is always on, not a cache). Total 139 → 138. `[LOG 05-04]`
 

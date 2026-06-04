@@ -145,6 +145,24 @@ Items ordered by priority. Status reflects current state.
 
 ---
 
+## Sprint 4C — GUI Polish & UX Refinement ✅ Done
+
+> **Goal:** Polish the Sprint 4B GUI based on visual / functional review. Extract stylesheets to external `.qss` files (with hot-reload for dev), redesign the Settings dialog into a category-list layout, add a Plugins Admin dialog, expose accent-colour / font-family / word-wrap settings end-to-end, allow encrypted notes to be decrypted from the editor, add a format chooser for new notes, and add real SVG icons for combobox / spinbox / checkbox / tab-close indicators. Completed June 2026 — 570 tests collected (569 pass, 1 POSIX-only skip).
+
+| ID | Description | US | Priority | Status |
+|----|-------------|----|----------|--------|
+| B-113 | External QSS stylesheets — `src/desktop/styles/{dark,light}.qss` loaded via `load_stylesheet()`; designers can iterate without touching Python. Adds optional `QFileSystemWatcher` hot-reload gated by `ASTRANOTES_QSS_HOTRELOAD=1` env var. | US-9 | Medium | ✅ Done |
+| B-114 | Settings dialog redesign — category list (`QListWidget` + `QStackedWidget`) with **Appearance / Editor / Behaviour / Files** pages; passphrase-length spinbox removed (backend default 8 chars remains); supported-formats info panel; right-aligned labels with consistent field column width. | US-9 | Medium | ✅ Done |
+| B-115 | Accent / font-family / word-wrap settings end-to-end — new `ConfigStore` keys `accent_color` (purple/pink/cyan/green/orange), `font_family`, `word_wrap` (yes/no) with `_VALUE_CONSTRAINTS`; `apply_theme()` now substitutes the accent colour into the QSS and pushes the font into existing widgets via `app.allWidgets()`. | US-9 | Medium | ✅ Done |
+| B-116 | Plugins Admin dialog — `PluginsDialog(QDialog)` with **Installed** + **Supported formats** tabs (`QTreeWidget`); checkable rows write the `allowed_plugins` config key; per-plugin description pane; filter box. Shortcut `Ctrl+Shift+P`. | US-4, US-9 | Medium | ✅ Done |
+| B-117 | New-note format chooser — `_NewNoteTypeDialog` lists built-in formats (Plain text / Markdown / Rich text) and any plugin-provided formats; separate "Encrypt this note" checkbox. `NoteEditorWidget.apply_format()` toggles `setAcceptRichText` and shows/hides B/I/U buttons. Tab label reflects the chosen format. | US-9 | Medium | ✅ Done |
+| B-118 | Decrypt-by-uncheck — `DatabaseStore.update()` gains `encrypted: Optional[bool]` kwarg. Setting `encrypted=False` clears the blob, removes the on-disk payload file if any, and writes plaintext content. `MainWindow._on_save` requires the user to unlock first before allowing decryption. | US-2, US-9 | High | ✅ Done |
+| B-119 | Themed SVG icons — `src/desktop/styles/icons/{chevron-down,chevron-up,check,close-dark,close-light,close-hover}.svg`; QSS uses `{ICONS}` token that the loader substitutes with the absolute icon path. Replaces invisible / mojibake combobox arrows, spinbox arrows, checkbox tick, and tab close `×`. | US-9 | Medium | ✅ Done |
+| B-120 | Dev-only Widget Gallery — `_WidgetGallery(QDialog)` with three tabs (Inputs / Lists & Trees / Misc) covering every styled widget for QSS iteration. Hidden `QAction`, shortcut `Ctrl+Shift+G`. No menu entry. | US-9 | Low | ✅ Done |
+| B-121 | UX micro-fixes — sidebar selection clears on **New Note** so the new tab isn't visually associated with the previous note; editor font-size combo widened (52 → 72 px) so the value isn't covered by the chevron; list `:hover:!selected` to prevent highlight overlap between adjacent rows. | US-9 | Low | ✅ Done |
+
+---
+
 ## Sprint 5A — Sync Server *(Planned)*
 
 > **Goal:** FastAPI push/pull sync server with PostgreSQL backend (ADR-11). See [Sprint 5 Plan](sprint-zero-plan.md).

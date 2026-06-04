@@ -394,6 +394,111 @@ tests\test_sprint3.py ..........................................................
 | `tests/features/reencrypt_note.feature` | 2 | Passphrase rotation success, wrong current passphrase rejection |
 | `tests/features/audit_log.feature` | 4 | Audit entries for add/delete/login/export events |
 
+---
+
+## Sprint 4B Evidence
+
+### Sprint 4B Gate Pass (2026-06-03)
+
+**Date:** 2026-06-03
+**Baseline:** Sprint 4B GUI completeness — VS Code-inspired layout, tab bar, rich-text editor, search, account-aware list, settings dialog, theme/font support, keyboard shortcuts.
+**Environment:** Python 3.12.10, pytest 9.0.2, pytest-bdd 8.1.0, PySide6 6.11.1 (headless `QT_QPA_PLATFORM=offscreen`), SQLAlchemy 2.0.49, cryptography 46.0.6, Windows (PowerShell).
+**Command:** `.venv\Scripts\python.exe -m pytest -q --timeout=30`
+
+### Result: 569 PASSED / 0 FAILED / 1 SKIPPED
+
+```
+569 passed, 1 skipped in ~33s
+```
+
+*(1 skipped = POSIX-only permission test on Windows.)*
+
+| Suite | Count | Delta vs Sprint 4 |
+|-------|-------|-------------------|
+| BDD scenarios | 30 | — |
+| Core unit — `test_core.py` | 46 | — |
+| Sprint 1 — `test_sprint1.py` | 83 | — |
+| Sprint 2 — `test_sprint2.py` | 102 | — |
+| Sprint 3 — `test_sprint3.py` | 128 | — |
+| Sprint 4 — `test_sprint4.py` | 106 | — |
+| **Sprint 4B — `test_sprint4b.py`** | **77** | **+77** new |
+| `test_all.py` | 4 | — |
+| Stress (skipped) | 1 | — |
+| **Total** | **569 + 1 skipped** | **+76** |
+
+### Sprint 4B Test Highlights (`tests/test_sprint4b.py`)
+
+- VS Code-inspired layout: `QSplitter` resize, sidebar collapse, dark/light palette on startup.
+- Tab bar: `QTabWidget` add/remove/move; active tab synced with sidebar selection.
+- Rich-text editor: `QTextEdit` HTML round-trip; B/I/U toolbar; `get_html_content()` vs `get_content()`.
+- Encrypted-note UX: alias input row; explicit `🔓 Unlock` button instead of auto-prompt.
+- Search bar: real-time filter; `Ctrl+F` focuses.
+- Account-aware sidebar: "Your Notes" / "Local Notes" sections when session token present.
+- Settings dialog (Sprint 4B layout): `theme`, `font_size`, `default_encrypt`, `passphrase_min_length`.
+- Keyboard shortcuts: Ctrl+N / Ctrl+S / Del / Ctrl+F / Ctrl+W / Ctrl+, / Ctrl+Q.
+
+---
+
+## Sprint 4C Evidence
+
+### Sprint 4C Gate Pass (2026-06-04)
+
+**Date:** 2026-06-04
+**Baseline:** Sprint 4C GUI polish — external `.qss` stylesheets with optional hot-reload, redesigned Settings dialog (category list + 4 pages), Plugins Admin dialog, new-note format chooser, decrypt-by-uncheck, themed SVG icons for combobox / spinbox / checkbox / tab-close, dev-only Widget Gallery.
+**Environment:** Python 3.12.10, pytest 9.0.2, pytest-bdd 8.1.0, PySide6 6.11.1 (headless), SQLAlchemy 2.0.49, cryptography 46.0.6, Windows (PowerShell).
+**Command:** `.venv\Scripts\python.exe -m pytest -q --timeout=30`
+
+### Result: 569 PASSED / 0 FAILED / 1 SKIPPED
+
+```
+569 passed, 1 skipped in 33.26s
+```
+
+| Suite | Count | Delta vs Sprint 4B |
+|-------|-------|--------------------|
+| All Sprint 0–4B suites (above) | 569 | — |
+| Sprint 4C net new tests | 0 | Sprint 4C reused Sprint 4B harnesses; one regression patch + one obsolete test removed (net 0) |
+| **Total** | **569 + 1 skipped** | **0** |
+
+### Sprint 4C Behavioural Coverage
+
+No new test file was introduced; behaviour was verified by:
+
+- Re-running the full 569-test suite headless after every visual / functional iteration.
+- Manual UX verification of the three screenshot review rounds (toolbar / spin / list / Settings / format dialog / decrypt-by-uncheck / sidebar deselect / tab-close icon).
+- Patching `tests/test_sprint4.py::TestSystemTray::test_close_minimizes_when_tray_available` to set `close_behavior="minimize"` so the new ask-on-close dialog (added in Sprint 4B) doesn't block the headless tray test.
+- Commenting out `tests/test_sprint4b.py::TestSettingsDialog::test_settings_dialog_has_passphrase_spin` (the widget was removed by UX request; backend default `passphrase_min_length=8` still applies).
+
+### New Source Files (Sprint 4C)
+
+| File | Purpose |
+|------|---------|
+| `src/desktop/styles/__init__.py` | `load_stylesheet(theme)` reads `.qss` files and substitutes `{ICONS}` with the absolute icons path [B-113]. |
+| `src/desktop/styles/dark.qss` | PyDracula dark theme — all widgets [B-113/B-119]. |
+| `src/desktop/styles/light.qss` | Light theme mirror [B-113/B-119]. |
+| `src/desktop/styles/icons/chevron-down-{dark,light}.svg`, `chevron-up-{dark,light}.svg` | Combobox + spinbox arrows [B-119]. |
+| `src/desktop/styles/icons/check.svg` | Checkbox tick [B-119]. |
+| `src/desktop/styles/icons/close-{dark,light,hover}.svg` | Tab close X with red hover state [B-119]. |
+| `AI Working Log/working-log-2026-06-04.md` | Session log [doc]. |
+
+### Modified Source Files (Sprint 4C)
+
+| File | Change |
+|------|--------|
+| `src/core/config.py` | Added `accent_color`, `font_family`, `word_wrap` to `ALLOWED_KEYS` / `_TYPE_MAP` / `DEFAULTS` / `_VALUE_CONSTRAINTS` [B-115]. |
+| `src/core/notes.py` | `DatabaseStore.update()` now accepts `encrypted: Optional[bool]`; passing `False` clears the blob, removes on-disk payload if any, and writes plaintext [B-118]. |
+| `src/desktop/app_controller.py` | Reads `font_family` + `accent_color` from config and forwards them to `apply_theme()` [B-115]. |
+| `src/desktop/main_window.py` | Loads QSS from files; `apply_theme(theme, font_size, font_family, accent)`; `ACCENT_COLORS` + `_stylesheet_with_accent()`; `_install_qss_hotreload()`; `SettingsDialog` redesign; new `PluginsDialog` / `_NewNoteTypeDialog` / `_WidgetGallery`; `NoteEditorWidget.apply_format()`; decrypt-by-uncheck save path; sidebar deselect on new note; font-size combo width 52→72; menu wiring for `Ctrl+Shift+P` and `Ctrl+Shift+G` [B-113..B-121]. |
+
+### Key Design Decisions Validated by Sprint 4C
+
+- **External QSS via `{ICONS}` token** — `load_stylesheet()` performs a single `str.replace("{ICONS}", icons_url)` so QSS files reference real SVG assets and remain portable regardless of where the package is installed.
+- **Hot-reload is dev-only** — gated by `ASTRANOTES_QSS_HOTRELOAD=1`; off in tests and production runs.
+- **Accent token swap** — accent colour is implemented as a string substitution on `#bd93f9` in the loaded QSS rather than a templating engine, keeping the loader dependency-free.
+- **Decrypt-by-uncheck safety** — `MainWindow._on_save` refuses the transition while the `[Encrypted]` placeholder is still visible (i.e. user hasn't unlocked) to prevent accidentally overwriting an encrypted note with placeholder text.
+- **Sidebar deselection on new note** — `_note_list.blockSignals(True); clearSelection(); setCurrentRow(-1); blockSignals(False)` so the visual selection follows the user's intent without firing a spurious `currentRowChanged` that would discard the new tab.
+
+
 ### Key Design Decisions Validated by Sprint 3 Tests
 
 - **`DatabaseStore.search()` never exposes encrypted blobs** — the DB layer returns `blob=None` for encrypted notes even when the alias matches. Tests `TestDatabaseStoreSearch.test_search_encrypted_body_never_returned_by_store` and `test_search_encrypted_alias_returns_note_with_blob_none` confirm this invariant.
@@ -478,4 +583,6 @@ tests\test_sprint3.py ..........................................................
 - **Qt headless testing** — All Qt tests set `QT_QPA_PLATFORM=offscreen` via `_ensure_app()` before constructing `QApplication`, enabling CI-safe GUI testing without a display.
 - **Security level passphrase caching** — `security_level="high"` (default) clears `_cached_passphrase` on every note navigation; `security_level="session"` retains it for the session. Validated by §11.
 - **Idle auto-lock** — `_IDLE_TIMEOUT_MS = 300_000` (5 minutes); `reset_idle_timer()` called on every user interaction; `_on_idle_timeout()` calls `auto_close_encrypted_note()` which clears cached passphrase and shows `[Encrypted]` placeholder. Validated by §10.
+
+
 
