@@ -584,5 +584,86 @@ No new test file was introduced; behaviour was verified by:
 - **Security level passphrase caching** — `security_level="high"` (default) clears `_cached_passphrase` on every note navigation; `security_level="session"` retains it for the session. Validated by §11.
 - **Idle auto-lock** — `_IDLE_TIMEOUT_MS = 300_000` (5 minutes); `reset_idle_timer()` called on every user interaction; `_on_idle_timeout()` calls `auto_close_encrypted_note()` which clears cached passphrase and shows `[Encrypted]` placeholder. Validated by §10.
 
+---
+
+## Sprint 5A.1 Evidence
+
+### Sprint 5A.1 Gate Pass (2026-06-04)
+
+**Date:** 2026-06-04
+**Baseline:** Sprint 5A.1 sync-server MVP — FastAPI app factory, JWT bearer auth (`authlib.jose` HS256), `POST /sync/push` + `GET /sync/pull?since=`, per-account isolation, error envelope, `SyncClient` httpx wrapper with token cache, `astranotes sync login/logout/push/pull` CLI.
+**Environment:** Python 3.12.10, pytest 9.0.2, FastAPI 0.136.1, httpx 0.28.1, authlib (latest), SQLAlchemy 2.0.49, Windows (PowerShell).
+**Command:** `.venv\Scripts\python.exe -m pytest -q --timeout=30`
+
+### Result: 609 PASSED / 0 FAILED / 1 SKIPPED
+
+```
+609 passed, 1 skipped in ~58s
+```
+
+| Suite | Count | Delta vs Sprint 4C |
+|-------|-------|--------------------|
+| All Sprint 0 – 4C suites | 569 | — |
+| **Sprint 5A.1 — `test_sprint5a.py`** | **40** | **+40** new |
+| **Total** | **609 + 1 skipped** | **+40** |
+
+### Sprint 5A.1 Test Breakdown (`tests/test_sprint5a.py` — 40 tests)
+
+| Section | Class | Tests | Backlog | Coverage |
+|---------|-------|-------|---------|----------|
+| §1 | `TestAppFactory` | 3 | B-86 | `create_app()` returns FastAPI; `/healthz`; `app.state` carries settings + factory + AccountStore |
+| §2 | `TestAuthLogin` | 5 | B-86 / B-88 | success returns token; bad password → 401; unknown user → identical 401 (no enumeration); 422 envelope; lockout → 423 |
+| §3 | `TestJwtMiddleware` | 8 | B-88 | missing / malformed / garbage / expired bearer → 401; valid bearer → 200; `verify_token` round-trip; `TokenExpired`; `TokenInvalid` on bad signature |
+| §4 | `TestSyncPush` | 7 | B-86 / B-94 | unauthenticated → 401; multi-note accept; empty list; LWW overwrite; LWW skip; spoofed `account_id` overridden by JWT subject; encrypted-blob round-trip |
+| §5 | `TestSyncPull` | 4 | B-86 | unauthenticated → 401; empty list; `since=<ts>` filter; `since=0` returns everything |
+| §6 | `TestAccountIsolation` | 3 | B-94 / R16.5 | alice cannot see bob's notes; same `note_id` isolated between accounts; pull response `account_id` matches token sub |
+| §7 | `TestSyncClient` | 7 | B-90 | `SyncClient.login` happy path; bad creds raises `AuthenticationError`; token-cache write/read; expired-cache auto-delete; corrupt-cache auto-delete; `delete_cached_token` when absent; full push + pull round-trip |
+| §8 | `TestCliSync` | 3 | B-90 | `sync logout` when absent; `sync push` without token → exit 1 with clear message; full `login → push → pull → logout` flow against `TestClient`-backed transport |
+
+### New Source Files (Sprint 5A.1)
+
+| File | Purpose |
+|------|---------|
+| `src/server/__init__.py` | Package init exporting `create_app`. |
+| `src/server/app.py` | FastAPI app factory + R16.8 error-envelope handlers + `/healthz`. |
+| `src/server/settings.py` | `ServerSettings` dataclass; `from_env()` requires `ASTRANOTES_JWT_SECRET` outside pytest. |
+| `src/server/db.py` | SQLAlchemy engine / session factory bound to `ServerSettings`; `init_db()` runs `Base.metadata.create_all`. |
+| `src/server/models.py` | `ServerNoteRow` ORM model with composite PK `(note_id, account_id)`. |
+| `src/server/schemas.py` | Pydantic v2 `LoginRequest/Response`, `NotePayload`, `PushRequest/Response`, `PullResponse`. |
+| `src/server/security.py` | `AccountClaims`, `issue_token()`, `verify_token()`, `current_account` FastAPI dependency. |
+| `src/server/main.py` | uvicorn entry point. |
+| `src/server/routers/auth.py` | `POST /auth/login`. |
+| `src/server/routers/sync.py` | `POST /sync/push`, `GET /sync/pull`. |
+| `src/core/sync_client.py` | sync-only `httpx` wrapper + on-disk token cache (`.sync_token`, owner-only perms). |
+| `tests/test_sprint5a.py` | 40 tests (above). |
+
+### Modified Source Files (Sprint 5A.1)
+
+| File | Change |
+|------|--------|
+| `src/cli.py` | New `sync` command group with `login` / `logout` / `push` / `pull` subcommands; injectable `SyncClient` (used by tests via `monkeypatch`). |
+| `src/core/notes.py` | New `DatabaseStore.list_pending_push()`, `mark_synced()`, `max_synced_at()`, `upsert_remote()` helpers. |
+| `requirements.txt` | Added explicit `httpx` dependency (was implicit via FastAPI). |
+
+### Key Design Decisions Validated by Sprint 5A.1
+
+- **Account-id spoof prevention** — Server always sets `ServerNoteRow.account_id` from `claims.account_id` regardless of what the client sent in the `NotePayload`. Validated by `TestSyncPush::test_push_overrides_spoofed_account_id` and `TestAccountIsolation::test_same_note_id_isolated_between_accounts`.
+- **Last-write-wins on `modified_at`** — `>=` comparison is intentional so retries with identical timestamps still succeed; older timestamps are surfaced via `PushResponse.skipped` rather than 409 conflict, per the D-14 client-side merge model.
+- **Composite primary key `(note_id, account_id)`** — Allows the same client-generated UUID to legally co-exist under two different accounts on one server. Required for the isolation regression tests.
+- **JWT subject is the only source of truth for `account_id`** — Inbound `account_id` field on `NotePayload` is accepted (forward-compat) but silently overwritten. R16.5.
+- **Pytest-aware secret bootstrap** — `ServerSettings.from_env()` falls back to `"test-secret-do-not-use-in-prod"` when `PYTEST_CURRENT_TEST` is set so unit tests stay hermetic; raises `RuntimeError` in production if `ASTRANOTES_JWT_SECRET` is missing.
+- **`TestClient` over `ASGITransport`** — `httpx.ASGITransport` is async-only in httpx 0.28; `fastapi.testclient.TestClient` is the sync-compatible substitute and is fed straight into `SyncClient(client=...)` for hermetic CLI tests.
+- **Server-time as the new sync watermark** — `PushResponse.server_time` and `PullResponse.server_time` are written into local `synced_at` so the next sync compares against the server's clock, not the client's.
+
+### Known Follow-ups for Sprint 5A.2
+
+- Postgres backend (`B-44`), least-privilege role (`B-53`), `sslmode=require` (`B-63`).
+- HTTPS/TLS enforcement middleware (`B-92`) — reject plain HTTP unless `ASTRANOTES_DEV_HTTP=1`.
+- Connection pool tuning + ≥10-user concurrent load test (`B-93`).
+- Rate limiting via `slowapi` (`B-95`) — 60 req/min/account, HTTP 429 + `Retry-After`.
+- Replace `authlib.jose` (deprecated; vendor wants migration to `joserfc` before 2.0).
+- Replace `HTTP_422_UNPROCESSABLE_ENTITY` constant with `HTTP_422_UNPROCESSABLE_CONTENT` (Starlette deprecation).
+- Migrate the server's schema-bootstrap from `create_all` to a dedicated Alembic chain.
+
 
 

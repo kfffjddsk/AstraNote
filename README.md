@@ -124,6 +124,34 @@ python -m src.cli --data-dir .astranotes list
 4. ✅ Test coverage for security, reliability, and governance (100% branch coverage on all core modules)
 5. GUI-ready API layer (desktop or web front-end) *(planned)*
 
+### Running the sync server (Sprint 5A.1, MVP)
+
+The optional cloud-sync server is a FastAPI application under `src/server/`. It exposes `POST /auth/login`, `POST /sync/push`, and `GET /sync/pull?since=<ts>`. All sync endpoints require a JWT bearer token issued by `/auth/login`.
+
+```bash
+# 1. Set the JWT secret (REQUIRED in production)
+$env:ASTRANOTES_JWT_SECRET = "<long-random-secret>"
+
+# 2. Optional: override the SQLite default
+$env:ASTRANOTES_SYNC_DATABASE_URL = "sqlite:///./astranotes_sync.db"
+$env:ASTRANOTES_SYNC_DATA_DIR     = "./astranotes_server_data"
+
+# 3. Launch
+python -m uvicorn src.server.app:create_app --factory --host 0.0.0.0 --port 8000
+```
+
+A client connects with the existing CLI:
+
+```bash
+astranotes config set sync_server_url http://localhost:8000
+astranotes sync login          # prompts username + password
+astranotes sync push           # uploads notes whose synced_at is stale
+astranotes sync pull           # pulls notes the server has modified since last sync
+astranotes sync logout         # forgets the cached token
+```
+
+> **Status:** The Sprint 5A.1 MVP runs on SQLite without HTTPS or rate limiting and is intended for development. Postgres backend, `sslmode=require`, HTTPS enforcement, connection-pool tuning, and per-account rate limiting land in Sprint 5A.2.
+
 ### Plugin development
 
 - Extend plugin samples in `plugins/`.

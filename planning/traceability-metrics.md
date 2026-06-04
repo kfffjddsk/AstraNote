@@ -1,8 +1,8 @@
 # AstraNotes — Traceability Metrics (v2.1)
 
-**Version:** 2.8  
+**Version:** 2.9  
 **Date:** June 4, 2026  
-**Status:** Updated — Sprint 4C GUI polish complete, 570 tests passing  
+**Status:** Updated — Sprint 5A.1 sync server MVP complete, 609 tests passing  
 **Owner:** Human team member  
 **AI Partner:** Astra (GitHub Copilot)
 
@@ -308,7 +308,7 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 | NFR-1 | **(R6.1)** BDD feature files cover R1 CRUD scenarios | US-1/US-2 · B-20 | `tests/features/*.feature` (5 files, 17 scenarios) | BDD:add/get/list/update/delete | — | Fully Traced | — |
 | NFR-2 | **(R6.2)** Unit tests cover Note, DatabaseStore, encryption | US-1/US-2/US-3 · B-21 | `tests/test_core.py` | `Unit:TN`, `Unit:TNS`, `Unit:TEE`, `Unit:TKM` (40 tests); `Sprint1:S1` §2 (plugin unit tests) | — | Fully Traced | B-83 done Sprint 1: `TestPluginBase` and `TestPluginRegistry` added to `tests/test_sprint1.py` |
 | NFR-3 | **(R6.3)** Stress test validates 1000+ note volume | US-3 · B-22 | `tests/test_core.py` | `Unit:stress` (1001 notes) | — | Fully Traced | — |
-| NFR-4 | **(R6.4)** Tests run via `pytest` and `test_all.py` | — | `pytest.ini`, `test_all.py` | 570 tests pass (570 collected, 1 skipped); Sprint 4B added 77 GUI tests (test_sprint4b.py), Sprint 4C reused them | — | Fully Traced | — |
+| NFR-4 | **(R6.4)** Tests run via `pytest` and `test_all.py` | — | `pytest.ini`, `test_all.py` | 609 tests pass (610 collected, 1 skipped); Sprint 5A.1 added 40 sync-server tests (test_sprint5a.py) | — | Fully Traced | — |
 | NFR-5 | **(R6.5)** Edge-case tests: whitespace, ID collision, corrupt JSON, passphrase, permissions | US-1/US-2/US-3 · B-40 | `tests/test_core.py`, `tests/test_sprint1.py`, `tests/features/` | Full BDD/unit coverage | — | Partially Traced | Corrupt-JSON and ID-collision-after-delete not applicable (SQLite ACID; no JSON layer). All other edge cases covered: whitespace/empty content (Sprint1:S1 §6), passphrase (BDD+Sprint1:S1 §12), permission errors (`test_cli_data_dir_not_writable_exits_nonzero`), null bytes (Sprint1:S1 §4/§9). B-40 closed; B-83 closed [2026-05-20] |
 
 ---
@@ -367,6 +367,8 @@ Five elements appear in the design or source code without a traceable requiremen
 > **Note (2026-06-03 — Sprint 4B complete):** All Sprint 4B backlog items (B-103 through B-112) implemented and tested. Adds 77 GUI completeness tests; total 570 (one POSIX-only skip). VS Code-inspired layout with `QSplitter`, `QTabWidget`, rich-text editor, search bar, account-aware sidebar, settings dialog, theme/font support, and keyboard shortcuts. New tests file: `tests/test_sprint4b.py`. R11 GUI items remain Fully Traced.
 
 > **Note (2026-06-04 — Sprint 4C complete):** Sprint 4C delivers GUI polish + dev tooling on top of Sprint 4B (B-113 through B-121). External `.qss` stylesheets with optional `QFileSystemWatcher` hot-reload (`ASTRANOTES_QSS_HOTRELOAD=1`); Settings dialog redesigned into a category-list layout (Appearance / Editor / Behaviour / Files); accent-colour / font-family / word-wrap settings wired end-to-end; Plugins Admin dialog (`Ctrl+Shift+P`); new-note format chooser (Plain / Markdown / Rich text + Encrypt checkbox); decrypt-by-uncheck on encrypted notes (`DatabaseStore.update(encrypted=False)`); themed SVG icons for combobox / spinbox / checkbox / tab-close; dev-only Widget Gallery (`Ctrl+Shift+G`). New config keys: `accent_color`, `font_family`, `word_wrap`. New asset directory: `src/desktop/styles/` (with `icons/` subfolder). 570 tests pass (1 skipped). No new requirement IDs; all R11 GUI items remain Fully Traced.
+
+> **Note (2026-06-04 — Sprint 5A.1 complete):** Sync-server MVP delivered (B-86, B-88, B-90 CLI half, B-94). New package `src/server/` with FastAPI app factory, JWT bearer auth via `authlib.jose`, `POST /sync/push` and `GET /sync/pull?since=` (last-write-wins on `modified_at`), per-account isolation enforced server-side from the JWT subject (clients cannot spoof). `src/core/sync_client.py` is a sync-only `httpx` wrapper with on-disk token cache (`.sync_token`, owner-only perms). `astranotes sync login/logout/push/pull` CLI commands. `DatabaseStore` gains `list_pending_push`, `mark_synced`, `max_synced_at`, `upsert_remote` helpers. 40 new tests in `tests/test_sprint5a.py` (609 total + 1 skipped). Requirements **FR-120 (R16.1) push**, **FR-121 (R16.2) pull**, **FR-122 (R16.4) JWT**, **FR-123 (R16.5) account isolation**, **FR-126 (R16.8) JSON error envelope**, **FR-127 (R16.10) FastAPI** move from Weakly/Not Traced → Fully Traced. **5A.2 hardening** (Postgres backend / B-44, least-privilege role / B-53, `sslmode=require` / B-63, HTTPS middleware / B-92, connection pool + load test / B-93, rate limiting / B-95) remains Pending.
 
 > **Note `[LOG 05-04]`:** R11 expanded from 4 items to 12 (split into Desktop GUI Sprint 4 + Sync-Enabled Desktop Client Sprint 5 — one PySide6 app); R12 rewritten for three-layer model (8 → 7 items); R13 updated for optional auth (15 → 14 items, removed FR-119); R16 rewritten as sync server with push/pull model. Total 141 → 139. FR-114 dropped (offline covered by FR-76 — local SQLite is always on, not a cache). Total 139 → 138. `[LOG 05-04]`
 
