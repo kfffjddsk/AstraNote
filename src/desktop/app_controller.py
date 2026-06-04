@@ -99,7 +99,9 @@ class AppController:
                 font_size = int(self.config.get("font_size") or 12)
             except (TypeError, ValueError):
                 font_size = 12
-            apply_theme(app, theme, font_size)
+            font_family = self.config.get("font_family") or ""
+            accent = self.config.get("accent_color") or "purple"
+            apply_theme(app, theme, font_size, font_family, accent)
             window = MainWindow(
                 store=self.store,
                 config=self.config,

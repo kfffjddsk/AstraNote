@@ -1199,6 +1199,8 @@ class TestSystemTray:
         from PySide6.QtGui import QCloseEvent
         w = self._make_window(tmp_path)
         w.show()
+        # close_behavior="minimize" -> hide-to-tray without opening the ask dialog
+        w._config.set("close_behavior", "minimize")
         # Patch tray to indicate system tray is available
         with patch.object(w._tray, "isSystemTrayAvailable", return_value=True), \
              patch.object(w._tray, "isVisible", return_value=True):

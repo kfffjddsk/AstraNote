@@ -389,12 +389,16 @@ class DatabaseStore:
         title: Optional[str] = None,
         content: Optional[str] = None,
         blob: Optional[bytes] = None,
+        encrypted: Optional[bool] = None,
     ) -> Note:
         """Update a note's fields and return the refreshed Note.
 
         - For unencrypted notes: pass ``title`` and/or ``content``.
         - For encrypted notes: pass ``blob`` to replace the ciphertext (e.g.
           after re-encryption).  Title alias updates are always accepted.
+        - Pass ``encrypted=False`` to convert an encrypted note back into a
+          plaintext note: the stored blob is cleared (and any on-disk payload
+          file removed) and *content* — which must be supplied — replaces it.
         - Updating an unencrypted note never touches an encrypted note's blob,
           satisfying the co-existence invariant.  [REQ R2.12] [BL B-33]
         - Raises :class:`KeyError` if *note_id* is not found.  [REQ R1.7]
@@ -406,6 +410,22 @@ class DatabaseStore:
                     raise KeyError(f"Note {note_id!r} not found.")
                 if title is not None:
                     row.title = title
+                # Convert encrypted -> unencrypted up-front so the content
+                # branch below treats the row as plaintext.
+                if encrypted is False and row.is_encrypted:
+                    if row.payload_location == "filesystem":
+                        file_path = (
+                            self._data_dir / _PAYLOAD_DIR / f"{note_id}.bin"
+                        )
+                        try:
+                            file_path.unlink()
+                        except FileNotFoundError:
+                            pass
+                        except OSError:
+                            pass
+                        row.payload_location = "inline"
+                    row.encrypted_blob = None
+                    row.is_encrypted = False
                 if not row.is_encrypted and content is not None:
                     row.content = content
                 if row.is_encrypted and blob is not None:

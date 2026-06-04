@@ -13,7 +13,7 @@ Covers backlog items B-103 through B-112:
 
 All Qt tests are gated behind @_qt (skipped when PySide6 is absent).
 
-Refs: [BL B-103–B-112] [REQ R9.7, R11] [US-9]
+Refs: [BL B-103B-112] [REQ R9.7, R11] [US-9]
 """
 from __future__ import annotations
 
@@ -164,13 +164,19 @@ class TestSettingsDialog:
         dlg = SettingsDialog(config)
         assert hasattr(dlg, "_default_encrypt_combo")
 
-    def test_settings_dialog_has_passphrase_spin(self, tmp_path):
-        """§2.5  SettingsDialog exposes _passphrase_spin widget."""
-        _ensure_app()
-        from src.desktop.main_window import SettingsDialog
-        config = ConfigStore(config_path=tmp_path / "cfg.json")
-        dlg = SettingsDialog(config)
-        assert hasattr(dlg, "_passphrase_spin")
+    # def test_settings_dialog_has_passphrase_spin(self, tmp_path):
+    #     """§2.5  SettingsDialog exposes _passphrase_spin widget.
+    #
+    #     Commented out (2026-06-03): the passphrase-length spinbox was removed
+    #     from the Settings UI per UX request — users should not configure this;
+    #     the backend default (8 chars) still applies. See ConfigStore default
+    #     for ``passphrase_min_length``.
+    #     """
+    #     _ensure_app()
+    #     from src.desktop.main_window import SettingsDialog
+    #     config = ConfigStore(config_path=tmp_path / "cfg.json")
+    #     dlg = SettingsDialog(config)
+    #     assert hasattr(dlg, "_passphrase_spin")
 
     def test_settings_dialog_theme_property(self, tmp_path):
         """§2.6  SettingsDialog.theme property returns current combo value."""
