@@ -1220,5 +1220,29 @@ def audit_cmd(
         click.echo("  ".join(parts))
 
 
+# ---------------------------------------------------------------------------
+# gui  [BL B-84] [REQ R11] [US-9]
+# ---------------------------------------------------------------------------
+
+
+@cli.command("gui")
+@click.pass_context
+def gui_cmd(ctx: click.Context) -> None:
+    """Launch the AstraNotes desktop GUI.  [BL B-84]"""
+    from src.desktop.app_controller import AppController
+
+    data_dir = None
+    if ctx.obj and ctx.obj.get("store"):
+        # Reuse the data_dir resolved during CLI startup
+        store = ctx.obj["store"]
+        if hasattr(store, "_data_dir"):
+            data_dir = store._data_dir
+
+    controller = AppController(data_dir=data_dir)
+    exit_code = controller.run()
+    if exit_code != 0:
+        raise SystemExit(exit_code)
+
+
 if __name__ == "__main__":  # pragma: no cover
     cli()

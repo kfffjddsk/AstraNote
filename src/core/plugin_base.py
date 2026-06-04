@@ -1,17 +1,37 @@
 """PluginBase ABC and PluginRegistry for AstraNotes hook-based extensibility.
 
-Refs: [BL B-18, B-37, B-38] [REQ R4.3, R4.7] [US-4] design §3.1
+Refs: [BL B-18, B-37, B-38, B-99, B-100] [REQ R4.3, R4.7, R4.11, R4.12, R4.13] [US-4] design §3.1
 """
 from __future__ import annotations
 
 import dataclasses
 import importlib.util
+import json
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+import jsonschema
+
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Manifest schema for plugin.json  [BL B-99] [REQ R4.11, R4.12]
+# ---------------------------------------------------------------------------
+
+_MANIFEST_SCHEMA: dict = {
+    "type": "object",
+    "required": ["plugin_id", "name", "version", "engines", "main"],
+    "properties": {
+        "plugin_id": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1},
+        "engines": {"type": "object"},
+        "main": {"type": "string", "minLength": 1},
+    },
+    "additionalProperties": True,
+}
 
 
 class PluginBase(ABC):
@@ -45,20 +65,39 @@ class PluginRegistry:
       never kills the calling operation.  [REQ R4.7]
     - Each hook receives a read-only copy of the note (dataclasses.replace)
       to prevent plugins from mutating core state.  [REQ R15.7] [D-09]
+    - Trust-tier enforcement: ``is_official=False`` plugins may only use the
+      EditorProvider API; hook registration is blocked with a warning.
+      [BL B-100] [REQ R4.13]
 
-    Refs: [BL B-18, B-38] [REQ R4.3, R4.7] design §3.1
+    Refs: [BL B-18, B-38, B-99, B-100] [REQ R4.3, R4.7, R4.11–R4.13] design §3.1
     """
 
     def __init__(self) -> None:
         self._hooks: dict[str, list[Callable]] = {}
         self._plugins: list[PluginBase] = []
+        self._manifests: list[dict] = []  # loaded plugin.json records [B-99]
 
-    def register_plugin(self, plugin: PluginBase) -> None:
-        """Register *plugin* and invoke its :meth:`~PluginBase.register_hooks`."""
+    def register_plugin(self, plugin: PluginBase, *, is_official: bool = True) -> None:
+        """Register *plugin* and invoke its :meth:`~PluginBase.register_hooks`.
+
+        Trust-tier enforcement [BL B-100]:
+        - ``is_official=True`` (default): plugin has full API access.
+        - ``is_official=False``: only the EditorProvider API is allowed; hook
+          registration is skipped with a warning.  Pass this flag explicitly when
+          registering user-installed plugins loaded from the file system.
+        """
         if any(type(p) is type(plugin) for p in self._plugins):
             logger.warning("Plugin %r already registered; skipping.", plugin.name)
             return
         self._plugins.append(plugin)
+        if not is_official:
+            logger.warning(
+                "Plugin %r is user-installed (is_official=False); "
+                "hook registration blocked — EditorProvider API only.  [B-100]",
+                plugin.name,
+            )
+            # Skip register_hooks; plugin still recorded for EditorProvider use.
+            return
         plugin.register_hooks(self)
 
     def register_hook(self, name: str, fn: Callable) -> None:
@@ -79,6 +118,70 @@ class PluginRegistry:
                 fn(note_copy, **kwargs)
             except Exception:
                 logger.exception("Plugin hook %r raised an exception.", name)
+
+    def load_manifests(self, plugin_dir: Path) -> list[dict]:
+        """Read and validate ``plugin.json`` from each subdirectory of *plugin_dir*.
+
+        Validation rules [BL B-99] [REQ R4.11, R4.12]:
+        - Required fields: ``plugin_id``, ``name``, ``version``, ``engines``, ``main``.
+        - Manifest must NOT contain ``is_official`` — that field is server-injected
+          only and must never appear in a user-supplied manifest file.
+        - Malformed JSON, missing file, schema violations, or ``is_official`` presence
+          are all rejected with a warning (non-fatal); the plugin subdir is skipped.
+        - Validated manifests are stored in ``self._manifests`` and returned.
+
+        Returns the list of accepted manifest dicts.
+        """
+        accepted: list[dict] = []
+        if not plugin_dir.is_dir():
+            return accepted
+
+        for subdir in sorted(plugin_dir.iterdir()):
+            if not subdir.is_dir():
+                continue
+            manifest_path = subdir / "plugin.json"
+            if not manifest_path.exists():
+                logger.warning(
+                    "Plugin subdir %s has no plugin.json; skipping.", subdir.name
+                )
+                continue
+            try:
+                with manifest_path.open(encoding="utf-8") as fh:
+                    manifest = json.load(fh)
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.warning(
+                    "Could not read plugin.json in %s: %s; skipping.", subdir.name, exc
+                )
+                continue
+
+            # Reject is_official in manifest — server-injected only [REQ R4.13]
+            if "is_official" in manifest:
+                logger.warning(
+                    "Plugin %s manifest contains 'is_official'; "
+                    "field is server-injected only — rejecting manifest.",
+                    subdir.name,
+                )
+                continue
+
+            try:
+                jsonschema.validate(manifest, _MANIFEST_SCHEMA)
+            except jsonschema.ValidationError as exc:
+                logger.warning(
+                    "Plugin %s manifest failed schema validation: %s; skipping.",
+                    subdir.name,
+                    exc.message,
+                )
+                continue
+
+            accepted.append(manifest)
+            logger.info(
+                "Loaded manifest for plugin %r v%s.",
+                manifest["plugin_id"],
+                manifest["version"],
+            )
+
+        self._manifests = accepted
+        return accepted
 
 
 # ---------------------------------------------------------------------------

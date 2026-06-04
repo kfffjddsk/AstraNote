@@ -28,11 +28,13 @@ logger = logging.getLogger(__name__)
 ALLOWED_KEYS: frozenset[str] = frozenset(
     {
         "allowed_plugins",
+        "close_behavior",
         "data_dir",
         "default_encrypt",
         "font_size",
         "passphrase_min_length",
         "plugin_dir",
+        "security_level",
         "sync_auto_interval",
         "sync_server_url",
         "theme",
@@ -42,11 +44,13 @@ ALLOWED_KEYS: frozenset[str] = frozenset(
 # Expected Python type for each key (used for value validation).  [REQ R9.4]
 _TYPE_MAP: dict[str, type] = {
     "allowed_plugins": list,
+    "close_behavior": str,
     "data_dir": str,
     "default_encrypt": str,
     "font_size": int,
     "passphrase_min_length": int,
     "plugin_dir": str,
+    "security_level": str,
     "sync_auto_interval": int,
     "sync_server_url": str,
     "theme": str,
@@ -55,11 +59,13 @@ _TYPE_MAP: dict[str, type] = {
 # Default value for each key.  [REQ R9.5]
 DEFAULTS: dict[str, Any] = {
     "allowed_plugins": [],
+    "close_behavior": "ask",
     "data_dir": None,
     "default_encrypt": "no",
     "font_size": 12,
     "passphrase_min_length": 8,
     "plugin_dir": None,
+    "security_level": "high",
     "sync_auto_interval": 0,
     "sync_server_url": None,
     "theme": "light",
@@ -68,6 +74,7 @@ DEFAULTS: dict[str, Any] = {
 # Keys with restricted allowed values (enum-style validation).
 _VALUE_CONSTRAINTS: dict[str, frozenset] = {
     "default_encrypt": frozenset({"yes", "no"}),
+    "security_level": frozenset({"high", "session"}),  # B-98 [REQ R9.8]
     "theme": frozenset({"light", "dark"}),
 }
 
