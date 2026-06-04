@@ -59,10 +59,23 @@ class ServerSettings:
     jwt_algorithm: str = "HS256"
     jwt_expiry_hours: int = 24
     data_dir: Path = field(default_factory=lambda: _DEFAULT_DATA_DIR)
+    # Sprint 5A.2 hardening fields.  ``enforce_https`` defaults to ``None`` so
+    # ``__post_init__`` can resolve it to ``False`` under pytest and ``True``
+    # in production without breaking any 5A.1 fixture that constructs
+    # ``ServerSettings(...)`` directly.  Refs: [BL B-92, B-93, B-95]
+    enforce_https: Optional[bool] = None
+    rate_limit_per_minute: int = 60
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
 
     def __post_init__(self) -> None:
         # Always store a resolved Path so downstream code never has to guess.
         self.data_dir = Path(self.data_dir).resolve()
+        if self.enforce_https is None:
+            # Pytest runs talk to ``http://testserver`` via ``TestClient``; we
+            # must not reject those out of the box.  Production gets the safe
+            # default of HTTPS-required.
+            self.enforce_https = not _running_under_pytest()
 
     @classmethod
     def from_env(cls) -> "ServerSettings":
@@ -101,10 +114,55 @@ class ServerSettings:
             )
             expiry_hours = 24
 
+        # Sprint 5A.2 hardening env vars.  ``ASTRANOTES_DEV_HTTP=1`` is the
+        # canonical opt-out for HTTPS enforcement (developer loopback runs).
+        # Pytest also disables it so the existing test suite stays green.
+        dev_http_raw = os.environ.get("ASTRANOTES_DEV_HTTP", "").strip().lower()
+        if dev_http_raw in ("1", "true", "yes"):
+            enforce_https = False
+        elif _running_under_pytest():
+            enforce_https = False
+        else:
+            enforce_https = True
+
+        rate_limit_raw = os.environ.get("ASTRANOTES_RATE_LIMIT_PER_MIN", "60")
+        try:
+            rate_limit_per_minute = int(rate_limit_raw)
+        except ValueError:
+            logger.warning(
+                "Invalid ASTRANOTES_RATE_LIMIT_PER_MIN=%r; falling back to 60.",
+                rate_limit_raw,
+            )
+            rate_limit_per_minute = 60
+
+        pool_size_raw = os.environ.get("ASTRANOTES_DB_POOL_SIZE", "10")
+        try:
+            db_pool_size = int(pool_size_raw)
+        except ValueError:
+            logger.warning(
+                "Invalid ASTRANOTES_DB_POOL_SIZE=%r; falling back to 10.",
+                pool_size_raw,
+            )
+            db_pool_size = 10
+
+        max_overflow_raw = os.environ.get("ASTRANOTES_DB_MAX_OVERFLOW", "20")
+        try:
+            db_max_overflow = int(max_overflow_raw)
+        except ValueError:
+            logger.warning(
+                "Invalid ASTRANOTES_DB_MAX_OVERFLOW=%r; falling back to 20.",
+                max_overflow_raw,
+            )
+            db_max_overflow = 20
+
         return cls(
             database_url=database_url,
             jwt_secret=secret,
             jwt_algorithm="HS256",
             jwt_expiry_hours=expiry_hours,
             data_dir=data_dir,
+            enforce_https=enforce_https,
+            rate_limit_per_minute=rate_limit_per_minute,
+            db_pool_size=db_pool_size,
+            db_max_overflow=db_max_overflow,
         )

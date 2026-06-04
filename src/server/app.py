@@ -18,11 +18,25 @@ from fastapi.responses import JSONResponse
 
 from src.core.auth import AccountStore
 from src.server.db import init_db, make_engine, make_session_factory
+from src.server.middleware import HTTPSEnforcementMiddleware
+from src.server.rate_limit import AccountRateLimiter
 from src.server.routers import auth as auth_router_module
 from src.server.routers import sync as sync_router_module
 from src.server.settings import ServerSettings
 
 logger = logging.getLogger(__name__)
+
+
+# Starlette 0.41+ exposes ``HTTP_422_UNPROCESSABLE_CONTENT``; older
+# releases only know the deprecated ``HTTP_422_UNPROCESSABLE_ENTITY`` name.
+# Fall through to the literal ``422`` if neither is present so the server
+# never explodes on import time over a constant renaming.
+if hasattr(status, "HTTP_422_UNPROCESSABLE_CONTENT"):
+    _HTTP_422 = status.HTTP_422_UNPROCESSABLE_CONTENT
+elif hasattr(status, "HTTP_422_UNPROCESSABLE_ENTITY"):
+    _HTTP_422 = status.HTTP_422_UNPROCESSABLE_ENTITY
+else:  # pragma: no cover - defensive fallback
+    _HTTP_422 = 422
 
 
 # ---------------------------------------------------------------------------
@@ -36,7 +50,7 @@ _ERROR_CODE_BY_STATUS: dict[int, str] = {
     status.HTTP_403_FORBIDDEN: "forbidden",
     status.HTTP_404_NOT_FOUND: "not_found",
     status.HTTP_409_CONFLICT: "conflict",
-    status.HTTP_422_UNPROCESSABLE_ENTITY: "validation_error",
+    _HTTP_422: "validation_error",
     status.HTTP_423_LOCKED: "locked",
     status.HTTP_429_TOO_MANY_REQUESTS: "rate_limited",
     status.HTTP_500_INTERNAL_SERVER_ERROR: "internal_error",
@@ -53,6 +67,9 @@ async def _http_exception_handler(
 ) -> JSONResponse:
     code = _ERROR_CODE_BY_STATUS.get(exc.status_code, "error")
     body = _envelope(error=code, message=str(exc.detail) if exc.detail else code)
+    # Surface any custom headers the raiser attached — most importantly
+    # ``Retry-After`` for 429 rate-limited responses (B-95) and
+    # ``WWW-Authenticate`` for 401s.
     return JSONResponse(
         status_code=exc.status_code,
         content=body,
@@ -75,7 +92,7 @@ async def _validation_exception_handler(
     )
     body = _envelope(error="validation_error", message=message)
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=_HTTP_422,
         content=body,
     )
 
@@ -116,6 +133,12 @@ def create_app(settings: Optional[ServerSettings] = None) -> FastAPI:
     app.state.engine = engine
     app.state.session_factory = session_factory
     app.state.account_store = account_store
+    # Sprint 5A.2: one shared rate-limiter per app instance (B-95).
+    app.state.rate_limiter = AccountRateLimiter(settings.rate_limit_per_minute)
+
+    # Sprint 5A.2: HTTPS enforcement runs before exception handlers so the
+    # plain-HTTP rejection short-circuits long before any router is invoked.
+    app.add_middleware(HTTPSEnforcementMiddleware, settings=settings)
 
     app.add_exception_handler(HTTPException, _http_exception_handler)
     app.add_exception_handler(RequestValidationError, _validation_exception_handler)

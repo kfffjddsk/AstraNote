@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from src.server.models import ServerNoteRow
+from src.server.rate_limit import AccountRateLimiter, RateLimitExceeded
 from src.server.schemas import (
     NotePayload,
     PullResponse,
@@ -30,6 +31,40 @@ from src.server.security import AccountClaims, current_account
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sync", tags=["sync"])
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting (B-95 / R16.7)
+# ---------------------------------------------------------------------------
+
+
+def _rate_limit_check(
+    request: Request,
+    claims: AccountClaims = Depends(current_account),
+) -> AccountClaims:
+    """Per-account sliding-window check; raises 429 with ``Retry-After``.
+
+    Reads the shared :class:`AccountRateLimiter` off ``app.state``.  When
+    no limiter is attached (e.g. an embedded test harness) the dependency
+    becomes a no-op so unit tests remain deterministic.
+    """
+    limiter: Optional[AccountRateLimiter] = getattr(
+        request.app.state, "rate_limiter", None
+    )
+    if limiter is None:
+        return claims
+    try:
+        limiter.check(claims.account_id)
+    except RateLimitExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                f"rate limit exceeded; retry after "
+                f"{exc.retry_after_seconds}s"
+            ),
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from None
+    return claims
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +120,7 @@ def _row_to_payload(row: ServerNoteRow) -> NotePayload:
 def push(
     body: PushRequest,
     request: Request,
-    claims: AccountClaims = Depends(current_account),
+    claims: AccountClaims = Depends(_rate_limit_check),
 ) -> PushResponse:
     """Upsert each note from *body* under the authenticated account.
 
@@ -151,7 +186,7 @@ def push(
 def pull(
     request: Request,
     since: Optional[str] = Query(default=None, description="ISO-8601 watermark"),
-    claims: AccountClaims = Depends(current_account),
+    claims: AccountClaims = Depends(_rate_limit_check),
 ) -> PullResponse:
     """Return all notes for the authenticated account modified after *since*.
 

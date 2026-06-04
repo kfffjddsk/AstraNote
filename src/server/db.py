@@ -11,6 +11,7 @@ Refs: [REQ R16.1, R16.10]
 from __future__ import annotations
 
 from typing import Iterator
+from urllib.parse import parse_qs, urlparse
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
@@ -20,18 +21,55 @@ from src.server.models import Base
 from src.server.settings import ServerSettings
 
 
+# Postgres ``sslmode`` values that Sprint 5A.2 considers "secure enough"
+# for non-loopback connections.  ``require`` is the floor; ``verify-ca``
+# and ``verify-full`` add certificate-chain validation on top.
+_PG_SECURE_SSLMODES = frozenset({"require", "verify-ca", "verify-full"})
+_PG_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", ""})
+
+
 def make_engine(settings: ServerSettings) -> Engine:
     """Create a SQLAlchemy engine for *settings*.
 
     SQLite URLs are configured with ``check_same_thread=False`` so the
-    FastAPI thread-pool can re-use a single connection across requests; for
-    other URLs the SQLAlchemy default behaviour is used.
+    FastAPI thread-pool can re-use a single connection across requests.
+    PostgreSQL URLs (Sprint 5A.2 hardening, B-44 / B-63) gain pool tuning
+    plus a ``sslmode=require`` guard for any non-loopback host.
     """
     connect_args: dict[str, object] = {}
-    if settings.database_url.startswith("sqlite"):
+    engine_kwargs: dict[str, object] = {}
+    url = settings.database_url
+
+    if url.startswith("sqlite"):
         connect_args["check_same_thread"] = False
+    elif url.startswith("postgresql"):
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        if host not in _PG_LOOPBACK_HOSTS:
+            qs = parse_qs(parsed.query)
+            sslmode_values = qs.get("sslmode") or [""]
+            sslmode = sslmode_values[0].lower()
+            if sslmode not in _PG_SECURE_SSLMODES:
+                raise ValueError(
+                    "Production Postgres DSN must include "
+                    f"sslmode=require: {url!r}"
+                )
+        # B-93 connection pool tuning.  ``pool_pre_ping`` weeds out stale
+        # connections after a network blip; ``pool_recycle=3600`` rotates
+        # connections every hour to dodge server-side idle timeouts.
+        engine_kwargs.update(
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_max_overflow,
+            pool_pre_ping=True,
+            pool_recycle=3600,
+        )
+
     return create_engine(
-        settings.database_url, echo=False, future=True, connect_args=connect_args
+        url,
+        echo=False,
+        future=True,
+        connect_args=connect_args,
+        **engine_kwargs,
     )
 
 
