@@ -1244,5 +1244,241 @@ def gui_cmd(ctx: click.Context) -> None:
         raise SystemExit(exit_code)
 
 
+# ---------------------------------------------------------------------------
+# sync  [BL B-86, B-88, B-90, B-94] [REQ R16.1, R16.2, R16.4, R16.5]
+# ---------------------------------------------------------------------------
+
+
+@cli.group("sync")
+def sync_group() -> None:
+    """Cloud-sync commands (login / logout / push / pull)."""
+
+
+def _resolve_server_url(ctx: click.Context, override: Optional[str]) -> str:
+    """Return the sync-server URL or exit with a clear message.
+
+    Honours the explicit ``--server-url`` flag first, then falls back to
+    the ``sync_server_url`` config key.  Empty / None on both sides is a
+    fatal error so users do not silently push to localhost by accident.
+    """
+    if override:
+        return override.rstrip("/")
+    config: ConfigStore = ctx.obj["config"]
+    url = config.get("sync_server_url")
+    if not url:
+        click.echo(
+            "Error: no sync server configured. "
+            "Set one with `astranotes config set sync_server_url <url>` "
+            "or pass --server-url.",
+            err=True,
+        )
+        sys.exit(1)
+    return str(url).rstrip("/")
+
+
+@sync_group.command("login")
+@click.option(
+    "--server-url",
+    default=None,
+    help="Sync server base URL (overrides sync_server_url config).",
+)
+@click.pass_context
+def sync_login_cmd(ctx: click.Context, server_url: Optional[str]) -> None:
+    """Authenticate with the sync server and cache the bearer token."""
+    from src.core.sync_client import (
+        AccountLockedError,
+        AuthenticationError,
+        SyncClient,
+        SyncError,
+        save_cached_token,
+    )
+
+    data_dir: Path = ctx.obj["data_dir"]
+    audit: AuditLogger = ctx.obj["audit"]
+    base_url = _resolve_server_url(ctx, server_url)
+
+    username = click.prompt("Username")
+    password = click.prompt("Password", hide_input=True)
+
+    with SyncClient(base_url=base_url) as client:
+        try:
+            response = client.login(username, password)
+        except AccountLockedError as exc:
+            click.echo(f"Error: account locked — {exc.message}", err=True)
+            audit.log("sync_login", outcome="failure",
+                      detail=f"username={username!r}, reason=locked")
+            sys.exit(1)
+        except AuthenticationError:
+            click.echo("Error: invalid username or password.", err=True)
+            audit.log("sync_login", outcome="failure",
+                      detail=f"username={username!r}, reason=auth")
+            sys.exit(1)
+        except SyncError as exc:
+            click.echo(f"Error: {exc.message}", err=True)
+            audit.log("sync_login", outcome="failure",
+                      detail=f"username={username!r}, reason=sync_error")
+            sys.exit(1)
+
+    save_cached_token(data_dir, response)
+    click.echo(f"Logged in to sync server as {response['username']}.")
+    audit.log("sync_login", outcome="success",
+              detail=f"username={response['username']!r}")
+
+
+@sync_group.command("logout")
+@click.pass_context
+def sync_logout_cmd(ctx: click.Context) -> None:
+    """Forget the cached sync-server token."""
+    from src.core.sync_client import delete_cached_token
+
+    data_dir: Path = ctx.obj["data_dir"]
+    audit: AuditLogger = ctx.obj["audit"]
+    if delete_cached_token(data_dir):
+        click.echo("Sync token cleared.")
+        audit.log("sync_logout", outcome="success")
+    else:
+        click.echo("No cached sync token.")
+
+
+def _require_token(ctx: click.Context) -> dict:
+    """Return the cached token dict or exit with a clear message."""
+    from src.core.sync_client import load_cached_token
+
+    data_dir: Path = ctx.obj["data_dir"]
+    token = load_cached_token(data_dir)
+    if token is None:
+        click.echo(
+            "Error: no valid sync token. Run `astranotes sync login` first.",
+            err=True,
+        )
+        sys.exit(1)
+    return token
+
+
+def _note_to_payload(note_dict: dict) -> dict:
+    """Translate a `DatabaseStore.list_pending_push` row into wire format."""
+    import base64
+
+    blob = note_dict.get("blob")
+    return {
+        "id": note_dict["id"],
+        "title": note_dict["title"],
+        "content": note_dict.get("content"),
+        "is_encrypted": bool(note_dict.get("is_encrypted")),
+        "encrypted_blob_b64": (
+            base64.b64encode(blob).decode("ascii") if blob else None
+        ),
+        "created_at": note_dict["created_at"],
+        "modified_at": note_dict["modified_at"],
+    }
+
+
+@sync_group.command("push")
+@click.option(
+    "--server-url",
+    default=None,
+    help="Sync server base URL (overrides sync_server_url config).",
+)
+@click.pass_context
+def sync_push_cmd(ctx: click.Context, server_url: Optional[str]) -> None:
+    """Upload all pending local notes to the sync server."""
+    from src.core.sync_client import SyncClient, SyncError
+
+    data_dir: Path = ctx.obj["data_dir"]
+    store: DatabaseStore = ctx.obj["store"]
+    audit: AuditLogger = ctx.obj["audit"]
+
+    token = _require_token(ctx)
+    base_url = _resolve_server_url(ctx, server_url)
+
+    pending = store.list_pending_push(token["account_id"])
+    if not pending:
+        click.echo("Nothing to push.")
+        return
+
+    payloads = [_note_to_payload(n) for n in pending]
+    with SyncClient(base_url=base_url) as client:
+        try:
+            response = client.push(token["access_token"], payloads)
+        except SyncError as exc:
+            click.echo(f"Error: push failed — {exc.message}", err=True)
+            audit.log("sync_push", outcome="failure",
+                      detail=f"reason={exc.message!r}")
+            sys.exit(1)
+
+    server_time = response["server_time"]
+    for note_dict in pending:
+        store.mark_synced(note_dict["id"], server_time)
+
+    click.echo(
+        f"Pushed {response['accepted']} notes "
+        f"(skipped {response['skipped']})."
+    )
+    audit.log(
+        "sync_push",
+        outcome="success",
+        detail=f"accepted={response['accepted']}, skipped={response['skipped']}",
+    )
+
+
+@sync_group.command("pull")
+@click.option(
+    "--server-url",
+    default=None,
+    help="Sync server base URL (overrides sync_server_url config).",
+)
+@click.option(
+    "--full",
+    is_flag=True,
+    default=False,
+    help="Ignore local watermark and pull every note for the account.",
+)
+@click.pass_context
+def sync_pull_cmd(ctx: click.Context, server_url: Optional[str], full: bool) -> None:
+    """Download notes from the sync server into the local database."""
+    import base64
+
+    from src.core.sync_client import SyncClient, SyncError
+
+    store: DatabaseStore = ctx.obj["store"]
+    audit: AuditLogger = ctx.obj["audit"]
+
+    token = _require_token(ctx)
+    base_url = _resolve_server_url(ctx, server_url)
+
+    since: Optional[str] = None
+    if not full:
+        since = store.max_synced_at(token["account_id"])
+
+    with SyncClient(base_url=base_url) as client:
+        try:
+            response = client.pull(token["access_token"], since=since)
+        except SyncError as exc:
+            click.echo(f"Error: pull failed — {exc.message}", err=True)
+            audit.log("sync_pull", outcome="failure",
+                      detail=f"reason={exc.message!r}")
+            sys.exit(1)
+
+    server_time = response["server_time"]
+    for payload in response["notes"]:
+        blob_b64 = payload.get("encrypted_blob_b64")
+        blob = base64.b64decode(blob_b64) if blob_b64 else None
+        store.upsert_remote(
+            note_id=payload["id"],
+            account_id=token["account_id"],
+            title=payload["title"],
+            content=payload.get("content"),
+            is_encrypted=bool(payload.get("is_encrypted")),
+            blob=blob,
+            created_at=payload["created_at"],
+            modified_at=payload["modified_at"],
+            synced_at=server_time,
+        )
+
+    click.echo(f"Pulled {len(response['notes'])} notes.")
+    audit.log("sync_pull", outcome="success",
+              detail=f"count={len(response['notes'])}")
+
+
 if __name__ == "__main__":  # pragma: no cover
     cli()

@@ -648,6 +648,197 @@ class DatabaseStore:
 
         _execute_with_retry(_do)
 
+    # ------------------------------------------------------------------
+    # sync helpers  [BL B-86, B-90] [REQ R16.1, R16.2]
+    # ------------------------------------------------------------------
+
+    def list_pending_push(self, account_id: str) -> list[dict]:
+        """Return note rows owned by *account_id* that need pushing to the server.
+
+        A note is "pending" when ``synced_at`` is NULL or older than
+        ``modified_at``.  Each returned dict contains the full sync payload
+        needed by :class:`src.core.sync_client.SyncClient` (id, title,
+        content, is_encrypted, blob bytes, created_at, modified_at).  For
+        ``payload_location='filesystem'`` notes the blob is read off disk
+        before returning so the caller does not need to know about hybrid
+        storage.
+
+        Refs: [BL B-86, B-90] [REQ R16.1]
+        """
+        def _do() -> list[dict]:
+            results: list[dict] = []
+            with self._Session() as session:
+                rows = (
+                    session.query(_NoteRow)
+                    .filter(_NoteRow.account_id == account_id)
+                    .all()
+                )
+                for row in rows:
+                    if row.synced_at is not None and row.synced_at >= row.modified_at:
+                        continue
+                    blob: Optional[bytes] = row.encrypted_blob
+                    if (
+                        row.is_encrypted
+                        and row.payload_location == "filesystem"
+                        and blob is None
+                    ):
+                        file_path = (
+                            self._data_dir / _PAYLOAD_DIR / f"{row.note_id}.bin"
+                        )
+                        try:
+                            blob = file_path.read_bytes()
+                        except FileNotFoundError:
+                            logger.error(
+                                "Filesystem payload missing for note %s at %s.",
+                                row.note_id, file_path,
+                            )
+                            blob = None
+                    results.append(
+                        {
+                            "id": row.note_id,
+                            "title": row.title,
+                            "content": row.content,
+                            "is_encrypted": bool(row.is_encrypted),
+                            "blob": blob,
+                            "created_at": row.created_at,
+                            "modified_at": row.modified_at,
+                        }
+                    )
+            return results
+
+        return _execute_with_retry(_do)
+
+    def mark_synced(self, note_id: str, synced_at: str) -> None:
+        """Stamp ``synced_at`` on *note_id* (no-op if the row is gone).
+
+        Used after a successful ``/sync/push`` response so the next push
+        skips already-uploaded rows.  Silently ignores missing notes — a
+        race with a concurrent local delete is not an error.
+
+        Refs: [BL B-86, B-90] [REQ R16.1]
+        """
+        def _do() -> None:
+            with self._Session() as session:
+                row = session.get(_NoteRow, note_id)
+                if row is None:
+                    return
+                row.synced_at = synced_at
+                session.commit()
+
+        _execute_with_retry(_do)
+
+    def max_synced_at(self, account_id: str) -> Optional[str]:
+        """Return the highest ``synced_at`` recorded for *account_id*, or ``None``.
+
+        Used as the ``since`` watermark on ``GET /sync/pull`` so the next
+        pull only fetches notes the server modified after the most recent
+        successful sync.
+
+        Refs: [BL B-90] [REQ R16.2]
+        """
+        def _do() -> Optional[str]:
+            with self._Session() as session:
+                rows = (
+                    session.query(_NoteRow.synced_at)
+                    .filter(
+                        _NoteRow.account_id == account_id,
+                        _NoteRow.synced_at.isnot(None),
+                    )
+                    .all()
+                )
+            values = [r[0] for r in rows if r[0] is not None]
+            return max(values) if values else None
+
+        return _execute_with_retry(_do)
+
+    def upsert_remote(
+        self,
+        *,
+        note_id: str,
+        account_id: str,
+        title: str,
+        content: Optional[str],
+        is_encrypted: bool,
+        blob: Optional[bytes],
+        created_at: str,
+        modified_at: str,
+        synced_at: str,
+    ) -> None:
+        """Insert or update a note received from the sync server.
+
+        Treats the server's payload as authoritative for the named note
+        (last-write-wins is enforced server-side).  Hybrid filesystem
+        storage is honoured: encrypted blobs larger than the threshold are
+        written to ``<data-dir>/files/`` and the DB column kept NULL.
+
+        Refs: [BL B-86, B-90] [REQ R16.2]
+        """
+        payload_location = "inline"
+        blob_for_db: Optional[bytes] = blob if is_encrypted else None
+        if (
+            is_encrypted
+            and blob is not None
+            and len(blob) > _FILESYSTEM_THRESHOLD_BYTES
+        ):
+            payload_location = "filesystem"
+            file_path = self._data_dir / _PAYLOAD_DIR / f"{note_id}.bin"
+            try:
+                file_path.write_bytes(blob)
+            except OSError as exc:
+                if getattr(exc, "errno", None) == errno.ENOSPC:
+                    raise DiskFullError(
+                        errno.ENOSPC,
+                        f"Cannot write payload for note {note_id!r}: "
+                        "no space left on device.",
+                    ) from exc
+                raise
+            blob_for_db = None
+
+        def _do() -> None:
+            with self._Session() as session:
+                row = session.get(_NoteRow, note_id)
+                if row is None:
+                    session.add(
+                        _NoteRow(
+                            note_id=note_id,
+                            account_id=account_id,
+                            title=title,
+                            content=content if not is_encrypted else None,
+                            encrypted_blob=blob_for_db,
+                            is_encrypted=is_encrypted,
+                            payload_location=payload_location,
+                            synced_at=synced_at,
+                            created_at=created_at,
+                            modified_at=modified_at,
+                        )
+                    )
+                else:
+                    # Clean up the previous filesystem payload if it is no
+                    # longer needed (smaller / now plaintext).
+                    if (
+                        row.payload_location == "filesystem"
+                        and payload_location != "filesystem"
+                    ):
+                        old_path = (
+                            self._data_dir / _PAYLOAD_DIR / f"{note_id}.bin"
+                        )
+                        try:
+                            old_path.unlink()
+                        except FileNotFoundError:
+                            pass
+                    row.account_id = account_id
+                    row.title = title
+                    row.content = content if not is_encrypted else None
+                    row.encrypted_blob = blob_for_db
+                    row.is_encrypted = is_encrypted
+                    row.payload_location = payload_location
+                    row.synced_at = synced_at
+                    row.created_at = created_at
+                    row.modified_at = modified_at
+                session.commit()
+
+        _execute_with_retry(_do)
+
 
 # ---------------------------------------------------------------------------
 # Internal helper (module-level to avoid duplication)
