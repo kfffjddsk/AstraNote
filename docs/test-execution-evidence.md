@@ -667,3 +667,78 @@ No new test file was introduced; behaviour was verified by:
 
 
 
+---
+
+## Sprint 5A.2 Evidence
+
+### Sprint 5A.2 Gate Pass (2026-06-04)
+
+**Date:** 2026-06-04
+**Baseline:** Sprint 5A.2 sync-server hardening — HTTPS enforcement middleware, in-process per-account rate limiter, Postgres DSN validation + pool tuning, ops doc, library hygiene (`HTTP_422_UNPROCESSABLE_CONTENT`).
+**Environment:** Python 3.12.10, pytest 9.0.2, FastAPI 0.136.1, httpx 0.28.1, authlib (latest), SQLAlchemy 2.0.49, Starlette 0.41+, Windows (PowerShell).
+**Command:** `.venv\Scripts\python.exe -m pytest -q --timeout=30`
+
+### Result: 631 PASSED / 0 FAILED / 1 SKIPPED
+
+```
+631 passed, 1 skipped in 45.90s
+```
+
+| Suite | Count | Delta vs Sprint 5A.1 |
+|-------|-------|----------------------|
+| All Sprint 0 – 5A.1 suites | 609 | — |
+| **Sprint 5A.2 — `test_sprint5a2.py`** | **22** | **+22** new |
+| **Total** | **631 + 1 skipped** | **+22** |
+
+### Sprint 5A.2 Test Breakdown (`tests/test_sprint5a2.py` — 22 tests)
+
+| Section | Class | Tests | Backlog | Coverage |
+|---------|-------|-------|---------|----------|
+| §1 | `TestHttpsEnforcement` | 5 | B-92 | plain-HTTP rejection with 400+envelope; `enforce_https=False` allows HTTP; loopback always allowed; `X-Forwarded-Proto: https` accepted; `/healthz` bypass |
+| §2 | `TestRateLimit` | 5 | B-95 | under-limit passes; over-limit returns 429 with `Retry-After`; 429 envelope shape; per-account isolation (alice exhausts, bob unaffected); `/auth/login` not rate-limited |
+| §3 | `TestRateLimiterUnit` | 4 | B-95 | allows under limit; raises at limit (`retry_after_seconds >= 1`); window slides (monkeypatched `time.time`); 20 threads × 10 calls → exactly `per_minute` successes |
+| §4 | `TestPostgresDsnValidation` | 3 | B-63 | localhost PG without `sslmode` OK; remote without `sslmode` raises our `ValueError`; remote with `sslmode=require` not blocked by our validation |
+| §5 | `TestConcurrentSync` | 1 | B-93 | 10 users in parallel `ThreadPoolExecutor` register→login→push→pull; account isolation holds |
+| §6 | `TestSettingsHardening` | 4 | B-92/B-93/B-95 | `enforce_https` default flip under/outside pytest; `ASTRANOTES_DEV_HTTP=1` flips off; `ASTRANOTES_RATE_LIMIT_PER_MIN` parsed; pool field defaults (10/20/60) |
+
+### New Source Files (Sprint 5A.2)
+
+| File | Purpose |
+|------|---------|
+| `src/server/middleware.py` | `HTTPSEnforcementMiddleware` — pure-ASGI plain-HTTP gate (B-92). |
+| `src/server/rate_limit.py` | `AccountRateLimiter` (sliding window, stdlib-only) + `RateLimitExceeded` (B-95). |
+| `docs/operations.md` | Production deployment guide: env vars, HTTPS, rate limit, Postgres least-privilege SQL (B-53), `sslmode=require` (B-63). |
+| `tests/test_sprint5a2.py` | 22 tests (above). |
+| `AI Working Log/working-log-2026-06-04-sprint5a2.md` | Session log. |
+
+### Modified Source Files (Sprint 5A.2)
+
+| File | Change |
+|------|--------|
+| `src/server/settings.py` | New fields `enforce_https` / `rate_limit_per_minute` / `db_pool_size` / `db_max_overflow`; `__post_init__` resolves `enforce_https=None → not _running_under_pytest()` so Sprint 5A.1 fixtures keep working; `from_env()` reads `ASTRANOTES_DEV_HTTP`, `ASTRANOTES_RATE_LIMIT_PER_MIN`, `ASTRANOTES_DB_POOL_SIZE`, `ASTRANOTES_DB_MAX_OVERFLOW`. |
+| `src/server/db.py` | `make_engine()` parses `postgresql://` DSNs, enforces `sslmode=require` / `verify-ca` / `verify-full` on non-loopback hosts, applies `pool_size` / `max_overflow` / `pool_pre_ping` / `pool_recycle=3600`. SQLite path unchanged. |
+| `src/server/routers/sync.py` | New `_rate_limit_check` dependency (reads `app.state.rate_limiter`; raises 429 with `Retry-After`); replaces `current_account` on `/sync/push` and `/sync/pull`. |
+| `src/server/app.py` | Adds `HTTPSEnforcementMiddleware` before exception handlers; instantiates `app.state.rate_limiter = AccountRateLimiter(settings.rate_limit_per_minute)`; replaces deprecated `HTTP_422_UNPROCESSABLE_ENTITY` with `HTTP_422_UNPROCESSABLE_CONTENT` (with version-safe `hasattr` fallback). |
+| `planning/backlog.md` | Sprint 5A section header → ✅ Done; B-44/B-53/B-63/B-92/B-93/B-95 → ✅ Done (5A.2). |
+| `planning/traceability-metrics.md` | v2.9 → v2.10; NFR-4 test count 609 → 631; Sprint 5A.2 completion note appended. |
+
+### Key Design Decisions Validated by Sprint 5A.2 Tests
+
+- **In-process rate limiter over `slowapi`.** Zero new dependencies, stdlib-only (`collections.deque` + `threading.Lock`), deterministic monkeypatchable clock for unit tests. Validated by `TestRateLimiterUnit::test_window_slides` (monkeypatched `time.time`) and `TestRateLimiterUnit::test_thread_safety` (20 threads × 10 calls = exactly `per_minute` successes).
+- **`enforce_https=None` sentinel.** Sprint 5A.1's `ServerSettings(...)` fixtures don't pass `enforce_https`. Resolving `None → not _running_under_pytest()` in `__post_init__` keeps all 40 prior tests green while making production safe-by-default. Validated by `TestSettingsHardening::test_enforce_https_default` (mock `_running_under_pytest` to flip the resolution either way).
+- **Pure-ASGI HTTPS middleware.** Sidesteps `BaseHTTPMiddleware` body-buffering / exception-propagation quirks. Validated end-to-end by `TestHttpsEnforcement` — five scenarios cover rejection, opt-out, loopback, `X-Forwarded-Proto`, and `/healthz` bypass.
+- **Postgres validation before driver lookup.** `make_engine()` parses the DSN with `urllib.parse.urlparse` and raises `ValueError` *before* calling `sqlalchemy.create_engine`, so the test suite validates the SSL rule without `psycopg2` installed. Tests wrap `create_engine` in `try/except` to accept `ImportError` / `ModuleNotFoundError` from SQLAlchemy's dialect lookup while rejecting our `ValueError`.
+- **`Retry-After` via existing handler.** The Sprint 5A.1 exception handler already forwards `exc.headers` to the JSONResponse. The 429 path just sets `headers={"Retry-After": str(n)}` on the `HTTPException` and the envelope falls out unchanged — no handler edits required. Validated by `TestRateLimit::test_over_limit_returns_429`.
+- **Login decoupled from sync limiter.** `/auth/login` is intentionally exempt — the existing `AccountStore` 5-attempts-then-5-minute-lockout policy already covers brute-force defence at a different layer. Validated by `TestRateLimit::test_login_not_rate_limited` (5 logins with `rate_limit_per_minute=1` all succeed).
+- **422 constant hygiene.** Switched to `HTTP_422_UNPROCESSABLE_CONTENT` with a `hasattr` chain instead of `getattr(...)` because `getattr`'s default arg is evaluated eagerly and was re-triggering the Starlette deprecation warning on every import.
+
+### Known Follow-ups Beyond Sprint 5A.2
+
+- Multi-worker rate limiting (current limiter is per-process; uvicorn with N workers needs a shared backend).
+- `authlib.jose` → `joserfc` migration (deprecation warning still emitted on import).
+- Alembic migration chain for server schema (least-privilege role can't run DDL).
+- locust/k6 throughput run on top of the existing 10-thread correctness test.
+
+
+
+

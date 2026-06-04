@@ -163,25 +163,25 @@ Items ordered by priority. Status reflects current state.
 
 ---
 
-## Sprint 5A — Sync Server *(In Progress)*
+## Sprint 5A — Sync Server ✅ Done
 
 > **Goal:** FastAPI push/pull sync server with PostgreSQL backend (ADR-11). See [Sprint 5 Plan](sprint-zero-plan.md).
 >
 > **Sprint 5A.1 (MVP) ✅ Done — June 2026:** FastAPI app factory, JWT bearer auth via `authlib.jose`, `POST /sync/push` + `GET /sync/pull?since=` with last-write-wins on `modified_at`, per-account isolation, error envelope, `SyncClient` httpx wrapper, `astranotes sync login/logout/push/pull` CLI, 40 new tests (609 / 1 skipped total).
 >
-> **Sprint 5A.2 (Hardening) — Remaining:** Postgres backend (B-44), least-privilege role (B-53), `sslmode=require` (B-63), HTTPS middleware (B-92), connection pool tuning + concurrent load test (B-93), rate limiting (B-95).
+> **Sprint 5A.2 (Hardening) ✅ Done — June 2026:** Postgres backend (B-44), least-privilege role docs (B-53), `sslmode=require` enforcement (B-63), HTTPS middleware (B-92), connection pool tuning + concurrent load test (B-93), in-process per-account rate limiter (B-95). 22 new tests (631 / 1 skipped total).
 
 | ID | Description | US | Priority | Status |
 |----|-------------|----|----------|--------|
-| B-44 | PostgreSQL backend for sync server (`DATABASE_URL` env var) `[LOG 05-04]` | US-12 | Medium | ⏳ 5A.2 |
-| B-53 | Least-privilege PostgreSQL role (no DDL) | US-12, US-13 | Medium | ⏳ 5A.2 |
-| B-63 | PostgreSQL `sslmode=require` enforcement | US-12, US-13 | High | ⏳ 5A.2 |
+| B-44 | PostgreSQL backend for sync server (`DATABASE_URL` env var) `[LOG 05-04]` | US-12 | Medium | ✅ Done (5A.2) |
+| B-53 | Least-privilege PostgreSQL role (no DDL) | US-12, US-13 | Medium | ✅ Done (5A.2) |
+| B-63 | PostgreSQL `sslmode=require` enforcement | US-12, US-13 | High | ✅ Done (5A.2) |
 | B-86 | Sync server skeleton (FastAPI) — `POST /sync/push` and `GET /sync/pull?since=<ts>`; conflict detection on client `[LOG 05-04]` `[D-14]` | US-12, US-14 | High | ✅ Done (5A.1) |
 | B-88 | JWT / bearer token validation middleware — HTTP 401 without valid token `[LOG 05-04]` | US-11, US-14 | High | ✅ Done (5A.1) |
-| B-92 | HTTPS/TLS enforcement — reject plain HTTP connections | US-13, US-14 | High | ⏳ 5A.2 |
-| B-93 | Concurrent request handling — SQLAlchemy connection pool; load test ≥ 10 users | US-12, US-14 | High | ⏳ 5A.2 |
+| B-92 | HTTPS/TLS enforcement — reject plain HTTP connections | US-13, US-14 | High | ✅ Done (5A.2) |
+| B-93 | Concurrent request handling — SQLAlchemy connection pool; load test ≥ 10 users | US-12, US-14 | High | ✅ Done (5A.2) |
 | B-94 | Per-account data isolation at sync layer — queries scoped by `account_id` from JWT `[LOG 05-04]` | US-11, US-14 | High | ✅ Done (5A.1) |
-| B-95 | Sync rate limiting — 60 req/min per account; HTTP 429 with `Retry-After` `[LOG 05-04]` | US-13, US-14 | Medium | ⏳ 5A.2 |
+| B-95 | Sync rate limiting — 60 req/min per account; HTTP 429 with `Retry-After` `[LOG 05-04]` | US-13, US-14 | Medium | ✅ Done (5A.2) |
 
 ---
 
