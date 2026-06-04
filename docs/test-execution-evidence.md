@@ -329,7 +329,7 @@ All six core modules at 100% branch coverage: `blob_codec.py`, `notes.py`, `secu
 **Environment:** Python 3.12, pytest, pytest-bdd, SQLAlchemy 2.0, cryptography, Windows (PowerShell)  
 **Command:** `.venv\Scripts\python.exe -m pytest tests/ -v --tb=short`
 
-### Result: 396 PASSED / 0 FAILED / 1 SKIPPED
+### Result: 387 PASSED / 0 FAILED / 1 SKIPPED
 
 ```
 ============================= test session starts =============================
@@ -337,7 +337,7 @@ platform win32 -- Python 3.12, pytest-9.0.x, pluggy-1.6.0
 rootdir: E:\Santa Clara\CSEN 296-B\AstraNotes
 configfile: pytest.ini
 plugins: anyio-4.13.0, bdd-8.1.0
-collected 397 items
+collected 388 items
 
 tests\steps\test_steps.py ..............................                  [  7%]
 tests\test_core.py ........................................                [ 18%]
@@ -346,10 +346,9 @@ tests\test_sprint1.py ..........................................................
 tests\test_sprint2.py ......................................................................
 .........................................                                  [ 67%]
 tests\test_sprint3.py ......................................................................
-......................................................................
-.......                                                                  [100%]
+.......................................................                  [100%]
 
-================ 396 passed, 1 skipped in ~43s ================================
+================ 387 passed, 1 skipped in ~24s ================================
 ```
 
 *(1 skipped = POSIX file-permission test, Windows-only skip — unchanged from Sprint 2)*
@@ -360,18 +359,18 @@ tests\test_sprint3.py ..........................................................
 | Unit — `test_core.py` | 40 | Unchanged from Sprint 2 |
 | CLI + unit — `test_sprint1.py` | 83 | Sprint 1 base (68) + 15 additional tests added during Sprint 3 hardening |
 | Auth + storage — `test_sprint2.py` | 107 | Sprint 2 base (106) + 1 regression fix |
-| Sprint 3 features — `test_sprint3.py` | 137 | See breakdown below |
-| **Total (all)** | **397** | |
-| **Total (excl. 1 skipped)** | **396** | |
+| Sprint 3 features — `test_sprint3.py` | 128 | See breakdown below |
+| **Total (all)** | **388** | |
+| **Total (passing)** | **387** | 1 skipped: POSIX permission test, Windows-only skip |
 
-### test_sprint3.py breakdown (137 tests)
+### test_sprint3.py breakdown (128 tests)
 
 | Class | Count | Backlog / Req |
 |---|---|---|
 | `TestAuditLogger` | 14 | [B-25] Append-only JSON audit log, filters, `outcome`, `detail` fields |
 | `TestConfigStore` | 17 | [B-26] Known-key whitelist, set/get/list/reset, `ALLOWED_KEYS`, `DEFAULTS` |
 | `TestDatabaseStoreSearch` | 15 | [B-29] `search()` — plain title+content match, encrypted alias-only, no blob exposed |
-| `TestCliSearch` | 18 | [B-29] CLI `search` — per-note passphrase prompt (`--encrypted`), audit logging, alias fallback |
+| `TestCliSearch` | 9 | [B-29] CLI `search` — base search (plain + alias); `--encrypted` per-note passphrase tests pending (B-29 ⏳) |
 | `TestCliExport` | 11 | [B-30, B-76, B-78] Export to text/JSON, `--output`, `--encrypted`, binary payloads, `--cleanup` |
 | `TestCliReencrypt` | 6 | [B-62] `reencrypt <note_id>` — passphrase rotation |
 | `TestCliConfig` | 7 | [B-26] CLI `config set/get/list/reset` |
@@ -413,3 +412,70 @@ tests\test_sprint3.py ..........................................................
 - Plugin hardening: allowlist config enforcement, override-policy confirmation, sandboxing (read-only copy, exec/eval blocked)
 - ANSI stripping: control codes removed from search/list/export output
 - Path traversal: `--data-dir` and `--output` reject `../` and absolute escapes
+
+---
+
+## Sprint 4 Evidence
+
+### Sprint 4 Gate Pass (2026-06-01)
+
+**Date:** 2026-06-01  
+**Baseline:** Sprint 4 full implementation — PySide6 desktop GUI, AppController, AppLockManager, system tray, idle auto-lock, plugin manifest validation, trust-tier enforcement, security_level config  
+**Environment:** Python 3.12.10, pytest 9.0.2, pytest-bdd 8.1.0, PySide6 6.x (headless offscreen), SQLAlchemy 2.0.49, cryptography 46.0.6, jsonschema, Windows (PowerShell)  
+**Command:** `.venv\Scripts\python.exe -m pytest -q`
+
+### Result: 493 PASSED / 0 FAILED / 1 SKIPPED
+
+```
+493 passed, 1 skipped in ~25s
+```
+
+*(1 skipped = `test_store_stress_1001_notes` — POSIX chmod, Windows-only)*
+
+| Suite | Count | Coverage |
+|-------|-------|----------|
+| BDD scenarios (`tests/steps/test_steps.py`) | 30 | Sprint 0–3 CRUD/encryption/search/reencrypt/audit |
+| Core unit — `test_core.py` | 46 | All Sprint 0 core tests |
+| Sprint 1 — `test_sprint1.py` | 83 | WAL/retry, plugin, CLI, Alembic |
+| Sprint 2 — `test_sprint2.py` | 102 | Accounts, auth, session, hybrid storage, CLI auth |
+| Sprint 3 — `test_sprint3.py` | 128 | Plugin hardening, audit trail, config, search/export, reencrypt |
+| **Sprint 4 — `test_sprint4.py`** | **106** | See breakdown below |
+| `test_all.py` | 4 | Smoke-level import + suite runner |
+| Stress (skipped by default) | 1 | 1 001 notes [B-22] |
+| **Total (excluding stress)** | **493** | |
+
+### Sprint 4 Test Breakdown (`tests/test_sprint4.py` — 106 tests)
+
+| Section | Class | Tests | Backlog Item | Coverage |
+|---------|-------|-------|-------------|----------|
+| §1 | `TestSecurityLevelConfig` | 10 | B-98 | `security_level` key: allowed values, default, persistence, reset, unknown keys |
+| §2 | `TestPluginManifestValidation` | 18 | B-99 | `load_manifests()`: valid manifest, missing fields, empty strings, `is_official` rejection, invalid JSON, subdirectory scanning |
+| §3 | `TestTrustTierEnforcement` | 9 | B-100 | `register_plugin(is_official=False)`: hooks blocked, plugin still recorded, warning emitted, default=True allows hooks |
+| §4a | `TestIsProcessAlive` | 4 | B-101 | `_is_process_alive()`: current PID, dead PID, PID 0 |
+| §4b | `TestAppLockManager` | 12 | B-101 | `acquire_lock()`, `release_lock()`, stale lock overwrite, corrupted JSON, `SessionConflictError`, double-release |
+| §5 | `TestAppControllerStartup` | 6 | B-84 | Mocked Qt startup sequence, `SessionConflictError` → exit 1, always-release lock in finally |
+| §6 | `TestCliGuiCommand` | 3 | B-84 | `astranotes gui` CLI command wiring, `AppController.run()` called, non-zero exit raises `SystemExit` |
+| §7 | `TestPassphraseDialog` | 5 | B-84/B-85 | `PassphraseDialog`: accept/reject, confirm-mode mismatch, passphrase attribute |
+| §8 | `TestNoteEditorWidget` | 7 | B-84/B-85 | `NoteEditorWidget`: `clear()`, `load()`, `get_title()`, `get_content()`, encrypted placeholder |
+| §9 | `TestMainWindowCRUD` | 12 | B-85 | `MainWindow`: note list population, new note, save, delete, note selection, passphrase prompt for encrypted |
+| §10 | `TestIdleTimer` | 8 | B-102 | `start_idle_timer()`, `reset_idle_timer()`, `_on_idle_timeout()`, `auto_close_encrypted_note()`, 5-min constant |
+| §11 | `TestSecurityLevelPassphrase` | 5 | B-98 | `high` mode clears cached passphrase on navigation; `session` mode retains it |
+| §12 | `TestSystemTray` | 7 | B-97 | `QSystemTrayIcon` created, `closeEvent` hides to tray, double-click toggle, quit action |
+
+### New Source Files (Sprint 4)
+
+| File | Purpose |
+|------|---------|
+| `src/core/app_lock.py` | `AppLockManager` PID lock file; `SessionConflictError`; stale-lock overwrite [B-101] |
+| `src/desktop/__init__.py` | Package init for desktop GUI module |
+| `src/desktop/app_controller.py` | `AppController` startup orchestrator: config → DB → lock → plugins → Qt [B-84] |
+| `src/desktop/main_window.py` | `MainWindow`, `PassphraseDialog`, `NoteEditorWidget` PySide6 widgets [B-84/B-85/B-97/B-102] |
+
+### Key Design Decisions Validated by Sprint 4 Tests
+
+- **PID lock file session exclusivity** — `AppLockManager.acquire_lock()` reads `{"pid": …}` and calls `_is_process_alive()`; stale locks (dead PID or corrupted JSON) are silently overwritten. `SessionConflictError` is raised only for alive PIDs. Validated by §4a/§4b.
+- **Trust-tier enforcement default backward-compatible** — `register_plugin()` defaults to `is_official=True` so Sprint 1/3 tests (which call `register_plugin(plugin)` without the kwarg and expect hooks to fire) continue to pass. Explicitly passing `is_official=False` blocks hooks. Validated by §3.
+- **Qt headless testing** — All Qt tests set `QT_QPA_PLATFORM=offscreen` via `_ensure_app()` before constructing `QApplication`, enabling CI-safe GUI testing without a display.
+- **Security level passphrase caching** — `security_level="high"` (default) clears `_cached_passphrase` on every note navigation; `security_level="session"` retains it for the session. Validated by §11.
+- **Idle auto-lock** — `_IDLE_TIMEOUT_MS = 300_000` (5 minutes); `reset_idle_timer()` called on every user interaction; `_on_idle_timeout()` calls `auto_close_encrypted_note()` which clears cached passphrase and shows `[Encrypted]` placeholder. Validated by §10.
+

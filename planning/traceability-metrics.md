@@ -1,8 +1,8 @@
 # AstraNotes — Traceability Metrics (v2.1)
 
-**Version:** 2.5  
-**Date:** May 21, 2026  
-**Status:** Updated — Sprint 2 complete, all Sprint 2 implementations verified  
+**Version:** 2.7  
+**Date:** June 1, 2026  
+**Status:** Updated — Sprint 4 complete, all Sprint 4 implementations verified  
 **Owner:** Human team member  
 **AI Partner:** Astra (GitHub Copilot)
 
@@ -45,6 +45,8 @@
 | `Unit:stress` | `test_store_stress_1001_notes` in `tests/test_core.py` |
 | `Sprint1:S1` | `tests/test_sprint1.py` — WAL/retry, plugin, CLI, Alembic tests |
 | `Sprint2:S2` | `tests/test_sprint2.py` — AccountStore, auth, session, hybrid storage, CLI auth commands, first-login prompt, coverage-gap tests |
+| `Sprint3:S3` | `tests/test_sprint3.py` — plugin hardening, audit trail, config module, search/export, reencrypt, ANSI stripping, path traversal |
+| `Sprint4:S4` | `tests/test_sprint4.py` — security_level config, plugin manifest validation, trust-tier enforcement, PID lock, AppController, PassphraseDialog, NoteEditorWidget, MainWindow CRUD, idle timer, security-level passphrase, system tray |
 | `(planned)` | Class/command exists only as a design stub; no production code |
 
 ### Status Definitions
@@ -97,9 +99,9 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 | FR-21 | **(R2.11)** Reject empty or whitespace passphrase; minimum 8 characters | US-2 · B-34 | `KeyManager.__init__()` raises `ValueError`; `cli.add()` catches at prompt | `Sprint1:S1` §12 (`test_cli_add_passphrase_too_short_exits_nonzero`) | — | Fully Traced | `KeyManager` raises `ValueError` for passphrases shorter than 8 chars; B-34 done Sprint 0; Sprint 1 adds CLI-level tests |
 | FR-22 | **(R2.12)** Updating/deleting unencrypted notes must not corrupt co-stored encrypted notes | US-2 · B-33 | `DatabaseStore` ACID | `Unit:TNS.test_delete_unencrypted_preserves_encrypted`; `Sprint1:S1` §9/§10 | — | Fully Traced | SQLite ACID + per-note blob writes eliminate corruption; CLI update/delete tested for co-existence invariant |
 | FR-23 | **(R2.13)** Only routing, crypto, and listing fields stored in plaintext; all else inside blob | US-2 · B-43/B-74 | `DatabaseStore`, `BlobCodec` | `Unit:TNS`; `Sprint1:S1` §6 | DM-2; DM-3 | Fully Traced | `notes` table stores only `id`, `title`, `format`, `encrypted`, `blob`; all content is in the blob; no plaintext content column |
-| FR-24 | **(R2.14)** `reencrypt <note_id>` command: prompt old→new passphrase; re-encrypt blob | US-2 · B-62 | `cli.reencrypt()` (planned) | (none) | — | Weakly Traced | Not in any interaction diagram; no CLI command skeleton exists |
-| FR-25 | **(R2.15)** Passphrase held in memory as Python string; not zeroizable (documented limitation) | US-2 · B-73 | `EncryptionEngine`, `KeyManager` | (ADR-04 documents limitation) | — | Partially Traced | ADR-04 notes the limitation; not surfaced in CLI output or a dedicated limitations doc |
-| FR-26 | **(R2.16)** Alias info warning when user sets alias on encrypted note | US-2 · B-79 | `cli.add()` (planned warning) | (none) | — | Weakly Traced | No interaction diagram shows alias flow; CLI argument for alias not yet defined |
+| FR-24 | **(R2.14)** `reencrypt <note_id>` command: prompt old→new passphrase; re-encrypt blob | US-2 · B-62 | `cli.reencrypt_cmd` | `Sprint3:S3` §6 (`TestCliReencrypt`) | — | Fully Traced | B-62 done Sprint 3: `reencrypt_cmd` implemented in `cli.py`; BDD scenario `test_reencrypt_an_encrypted_note_with_a_new_passphrase`; unit tests in `Sprint3:S3` §6 |
+| FR-25 | **(R2.15)** Passphrase held in memory as Python string; not zeroizable (documented limitation) | US-2 · B-73 | `src/core/security.py` comment, `KeyManager` | `Sprint3:S3` §17 (`TestPassphraseMemoryLimitation`) | — | Fully Traced | B-73 done Sprint 3: limitation documented in code comments and tested in `TestPassphraseMemoryLimitation.test_passphrase_memory_limitation_documented` |
+| FR-26 | **(R2.16)** Alias info warning when user sets alias on encrypted note | US-2 · B-79 | `cli.add()` | `Sprint3:S3` §16 (`TestAliasInfoWarning`) | — | Fully Traced | B-79 done Sprint 3: `cli.add()` displays info message when alias provided; tested in `TestAliasInfoWarning` |
 
 ---
 
@@ -125,13 +127,13 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 | FR-35 | **(R4.1)** Plugin base class: name, version, hook registration | US-4 · B-18 | `PluginBase` (ABC) | SD-4 (dispatch shows hook fn); `summary_plugin.py`; `Sprint1:S1` §2 | — | Fully Traced | B-83 complete: `TestPluginBase` and `TestPluginRegistry` unit tests added in Sprint 1 |
 | FR-36 | **(R4.2)** Plugin registry manages hooks and dispatches calls | US-4 · B-18 | `PluginRegistry` | SD-4; `summary_plugin.py`; `Sprint1:S1` §2 | — | Fully Traced | B-83 complete: `TestPluginRegistry` tests cover register, call_hook, error isolation |
 | FR-37 | **(R4.3)** Plugins register post-action hooks (e.g., `post_add_note`) | US-4 · B-18 | `PluginRegistry.register_hook()` | SD-4; `on_note_added` in `summary_plugin.py`; `Sprint1:S1` §2 | — | Fully Traced | Hook dispatch tested in `Sprint1:S1` §2 (`test_plugin_registry_calls_hook`) |
-| FR-38 | **(R4.4)** Plugins provide additional CLI commands | US-4 · B-28 | `PluginBase.get_commands()`, `PluginRegistry` | (none — commands not wired into CLI) | — | Fully Traced | `get_commands()` defined in base class; not yet wired into `cli.py`; B-28 open |
-| FR-39 | **(R4.5)** Core security immutable to plugins; crashes caught/logged; no eval/exec | US-4 · B-56 | `PluginBase`, `PluginRegistry.call_hook()` | `Sprint1:S1` §2 (crash isolation tests) | — | Partially Traced | Crash isolation: `call_hook()` wraps each handler in try/except (B-38, Sprint 0). Immutability and no-eval/exec enforcement deferred to B-56 (Sprint 3) |
+| FR-38 | **(R4.4)** Plugins provide additional CLI commands | US-4 · B-28 | `PluginBase.get_commands()`, `PluginRegistry`, `cli.add_command()` | `Sprint3:S3` §11 (`TestPluginCommandWiring`) | — | Fully Traced | B-28 done Sprint 3: plugin commands wired into `cli.py` via `cli.add_command()`; tested in `Sprint3:S3` §11 |
+| FR-39 | **(R4.5)** Core security immutable to plugins; crashes caught/logged; no eval/exec | US-4 · B-56 | `PluginBase`, `PluginRegistry.call_hook()` with `dataclasses.replace(note)` | `Sprint1:S1` §2 (crash isolation); `Sprint3:S3` §14 (`TestPluginSandboxing`) | — | Fully Traced | B-56 done Sprint 3: `call_hook()` passes `dataclasses.replace(note)` read-only copy; no eval/exec in plugin dispatch path; `TestPluginSandboxing` confirms mutation isolation |
 | FR-40 | **(R4.6)** Discover and load plugins from `plugins/` on startup | US-4 · B-37 | `discover_plugins()` in `plugin_base.py`; `cli.py` startup call | `Sprint1:S1` §3 (plugin discovery tests) | — | Fully Traced | B-37 done Sprint 1: `discover_plugins(plugin_dir, registry)` scans `*.py`, imports via `importlib`, registers all `PluginBase` subclasses |
 | FR-41 | **(R4.7)** Hook crash logged; does not kill the triggering operation | US-4 · B-38 | `PluginRegistry.call_hook()` | `Sprint1:S1` §2 (`test_plugin_registry_isolates_crashing_hook`) | — | Fully Traced | B-38 done Sprint 0: try/except per handler in `call_hook()`; exception logged, operation continues |
 | FR-42 | **(R4.8)** Duplicate plugin registration → skip with warning | US-4 · B-38 | `PluginRegistry.register_plugin()` | `Sprint1:S1` §2 (`test_plugin_registry_rejects_duplicate`) | — | Fully Traced | B-38 done Sprint 0: duplicate-ID check in `register_plugin()`; Sprint 1 B-83 adds explicit test |
-| FR-43 | **(R4.9)** `overrides` field validated against override policy (R7) | US-4/US-5 · B-24 | `PluginBase.overrides`, `cli.py` guard (planned) | (none) | — | Weakly Traced | Override policy (R7) unimplemented; validation call site not designed |
-| FR-44 | **(R4.10)** Plugin allowlist in config; only listed plugins loaded | US-4 · B-69 | `ConfigStore` (planned), startup loader (planned) | (none) | ADR-05 | Partially Traced | Designed in ADR-05 and class diagram; no code reads or enforces the allowlist |
+| FR-43 | **(R4.9)** `overrides` field validated against override policy (R7) | US-4/US-5 · B-24 | `PluginBase.overrides`, `PluginRegistry.register_plugin()` override check | `Sprint3:S3` §10 (`TestPluginOverridePolicy`) | — | Fully Traced | B-24 done Sprint 3: override check at plugin registration; red warning + `CONFIRM OVERRIDE` prompt; tested in `TestPluginOverridePolicy` |
+| FR-44 | **(R4.10)** Plugin allowlist in config; only listed plugins loaded | US-4 · B-69 | `ConfigStore.allowed_plugins`, `PluginRegistry.register_plugin()` allowlist check | `Sprint3:S3` §9 (`TestPluginAllowlist`) | ADR-05 | Fully Traced | B-69 done Sprint 3: `allowed_plugins` config key enforced at `register_plugin()` time; empty list = allow all; tested in `TestPluginAllowlist` |
 | FR-45 | **(R4.11)** `plugin.json` manifest required; fields `plugin_id`, `name`, `version`, `engines`, `main` required; validated with `jsonschema` at startup `[D-12]` | US-4 · B-99 | `PluginRegistry.load_manifests()` (planned) | (none) | ADR-14 | Weakly Traced | Designed in manifest schema §3.1 and ADR-14; no implementation |
 | FR-46 | **(R4.12)** `is_official` server-assigned only; manifest `is_official` rejected; sideloaded defaults to `False` `[D-12]` | US-4 · B-99 | `PluginRegistry.load_manifests()` (planned) | (none) | ADR-14 | Weakly Traced | Designed in §3.1 and ADR-14; no implementation |
 | FR-47 | **(R4.13)** Trust-tier enforcement: `is_official = True` → full API; `is_official = False` → `EditorProvider` only; `PluginBase` hooks blocked `[D-12]` | US-4, US-13 · B-100 | `PluginRegistry.register_plugin()` (planned) | (none) | ADR-14 | Weakly Traced | Designed in §3.1 and ADR-14; no implementation |
@@ -152,11 +154,11 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 
 | ID | Requirement (Source) | US / Backlog | Class/Object Evidence | Use Case/Activity Evidence | Deployment Evidence | Status | Gap Note |
 |---|---|---|---|---|---|---|---|
-| FR-48 | **(R7.1)** Display red warning before core override | US-5 · B-24 | `cli.py` guard (planned) | (none) | — | Weakly Traced | No override flow designed in any interaction diagram; B-24 in Sprint 3 |
-| FR-49 | **(R7.2)** Require typed `CONFIRM OVERRIDE` exactly to proceed | US-5 · B-24 | `cli.py` guard (planned) | (none) | — | Weakly Traced | No confirmation prompt or abort flow designed |
-| FR-50 | **(R7.3)** Abort on incorrect or empty confirmation | US-5 · B-24 | `cli.py` guard (planned) | (none) | — | Weakly Traced | Abort path undefined |
-| FR-51 | **(R7.4)** Log all override attempts to audit trail | US-5/US-6 · B-24/B-25 | `AuditLogger` (planned) | (none) | DM-5 | Weakly Traced | Cross-dependency with R8 (AuditLogger) not sequenced; both Sprint 3 |
-| FR-52 | **(R7.5)** Override scope limited to plugin hooks; normal CRUD never triggers override | US-5 · B-24 | `PluginBase.overrides`, guard (planned) | (none) | — | Weakly Traced | Scope boundary described in requirements but no enforcement code path exists |
+| FR-48 | **(R7.1)** Display red warning before core override | US-5 · B-24 | `cli.py` override check fn | `Sprint3:S3` §10 (`TestPluginOverridePolicy`) | — | Fully Traced | B-24 done Sprint 3: red ANSI warning displayed before `CONFIRM OVERRIDE` prompt |
+| FR-49 | **(R7.2)** Require typed `CONFIRM OVERRIDE` exactly to proceed | US-5 · B-24 | `cli.py` override check fn | `Sprint3:S3` §10 (`TestPluginOverridePolicy`) | — | Fully Traced | B-24 done Sprint 3: `CONFIRM OVERRIDE` typed confirmation required |
+| FR-50 | **(R7.3)** Abort on incorrect or empty confirmation | US-5 · B-24 | `cli.py` override check fn | `Sprint3:S3` §10 (`TestPluginOverridePolicy`) | — | Fully Traced | B-24 done Sprint 3: override_check_fn returning False skips plugin load |
+| FR-51 | **(R7.4)** Log all override attempts to audit trail | US-5/US-6 · B-24/B-25 | `AuditLogger.log()` called on override attempt | `Sprint3:S3` §10 (`TestPluginOverridePolicy`) | DM-5 | Fully Traced | B-24/B-25 done Sprint 3: override attempts logged via `AuditLogger.log()` |
+| FR-52 | **(R7.5)** Override scope limited to plugin hooks; normal CRUD never triggers override | US-5 · B-24 | `PluginBase.overrides`, `PluginRegistry.register_plugin()` override check | `Sprint3:S3` §10 (`TestPluginOverridePolicy`) | — | Fully Traced | B-24 done Sprint 3: override check only at plugin registration; CRUD commands never trigger override prompt |
 
 ---
 
@@ -164,12 +166,12 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 
 | ID | Requirement (Source) | US / Backlog | Class/Object Evidence | Use Case/Activity Evidence | Deployment Evidence | Status | Gap Note |
 |---|---|---|---|---|---|---|---|
-| FR-53 | **(R8.1)** JSON-per-line log with defined fields (timestamp, operation, note_id, outcome, detail) | US-6 · B-25 | `AuditLogger` (planned) | (none) | DM-5 | Weakly Traced | Data model defined in design.md §5.5; no class implementation |
-| FR-54 | **(R8.2)** Log all listed operations (encrypt, decrypt, passphrase_attempt, override, login, …) | US-6 · B-25/B-71 | `AuditLogger.log()` (planned) | (none) | DM-5 | Weakly Traced | Call sites from each operation not mapped in any interaction diagram |
-| FR-55 | **(R8.3)** Log is append-only; entries never modified | US-6 · B-25 | `AuditLogger` file-open mode (planned) | (none) | — | Weakly Traced | Append-only file semantics not yet designed or enforced |
-| FR-56 | **(R8.4)** Audit log at `<data-dir>/audit.log` (flat, no per-user dir) `[LOG 05-04]` | US-6 · B-25 | `AuditLogger`, `ConfigStore` (planned) | (none) | DM-5 | Weakly Traced | Flat data dir per ADR-09 updated `[LOG 05-04]`; neither implemented |
-| FR-57 | **(R8.5)** `audit` CLI command with `--limit`, `--operation`, `--since` filters | US-6 · B-25 | `cli.audit()` (planned) | (none) | — | Weakly Traced | No CLI command skeleton or interaction diagram exists |
-| FR-58 | **(R8.6)** Audit file unwritable → warn, do not block the operation | US-6 · B-25 | `AuditLogger.log()` (planned error handling) | (none) | — | Weakly Traced | Error-isolation design for `AuditLogger` not specified |
+| FR-53 | **(R8.1)** JSON-per-line log with defined fields (timestamp, operation, note_id, outcome, detail) | US-6 · B-25 | `AuditLogger` in `src/core/audit.py` | `Sprint3:S3` §1 (`TestAuditLogger`) | DM-5 | Fully Traced | B-25 done Sprint 3: `AuditLogger` in `src/core/audit.py`; JSON-per-line with timestamp/operation/note_id/outcome/detail; tested in `TestAuditLogger` |
+| FR-54 | **(R8.2)** Log all listed operations (encrypt, decrypt, passphrase_attempt, override, login, …) | US-6 · B-25/B-71 | `AuditLogger.log()` call sites in `cli.py` | `Sprint3:S3` §15 (`TestAuditIntegration`) | DM-5 | Fully Traced | B-25/B-71 done Sprint 3: login/logout/register/encrypt/decrypt/reencrypt/export all logged; `TestAuditIntegration` |
+| FR-55 | **(R8.3)** Log is append-only; entries never modified | US-6 · B-25 | `AuditLogger.log()` opens file in `'a'` mode | `Sprint3:S3` §1 (`TestAuditLogger`) | — | Fully Traced | B-25 done Sprint 3: `AuditLogger.log()` opens file in `'a'` mode; entries never modified |
+| FR-56 | **(R8.4)** Audit log at `<data-dir>/audit.log` (flat, no per-user dir) `[LOG 05-04]` | US-6 · B-25 | `AuditLogger(data_dir)` | `Sprint3:S3` §1 (`TestAuditLogger`) | DM-5 | Fully Traced | B-25 done Sprint 3: audit log at `<data-dir>/audit.log`; flat layout per ADR-09 |
+| FR-57 | **(R8.5)** `audit` CLI command with `--limit`, `--operation`, `--since` filters | US-6 · B-25 | `cli.audit_cmd` | `Sprint3:S3` §8 (`TestCliAudit`) | — | Fully Traced | B-25 done Sprint 3: `audit` command with `--limit`, `--operation`, `--since` filters; `TestCliAudit` |
+| FR-58 | **(R8.6)** Audit file unwritable → warn, do not block the operation | US-6 · B-25 | `AuditLogger.log()` OSError handling | `Sprint3:S3` §1 (`test_log_unwritable_file_does_not_raise`) | — | Fully Traced | B-25 done Sprint 3: OSError silently caught in `AuditLogger.log()`; operation continues |
 
 ---
 
@@ -177,12 +179,12 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 
 | ID | Requirement (Source) | US / Backlog | Class/Object Evidence | Use Case/Activity Evidence | Deployment Evidence | Status | Gap Note |
 |---|---|---|---|---|---|---|---|
-| FR-59 | **(R9.1)** Store settings in `<data-dir>/config.json` | US-7 · B-26 | `ConfigStore` (planned) | (none) | — | Weakly Traced | `ConfigStore` has no designed initialization order or startup integration point |
-| FR-60 | **(R9.2)** CLI commands: `config set/get/list/reset` | US-7 · B-26 | `ConfigStore`, `cli.config()` (planned) | (none) | — | Weakly Traced | No interaction diagram for config commands |
-| FR-61 | **(R9.3)** Known keys only; free-form keys rejected | US-7 · B-26 | `ConfigStore.ALLOWED_KEYS` (planned) | (none) | — | Weakly Traced | `ALLOWED_KEYS` named in class diagram; validation logic not designed |
-| FR-62 | **(R9.4)** Invalid value type for a key → error with expected type | US-7 · B-26 | `ConfigStore.set()` (planned) | (none) | — | Weakly Traced | Per-key type schema not enumerated in design |
-| FR-63 | **(R9.5)** Config file missing → use defaults; create on first `config set` | US-7 · B-26 | `ConfigStore` (planned) | (none) | — | Weakly Traced | Default values for all known keys not enumerated in design |
-| FR-64 | **(R9.6)** `DATABASE_URL` never stored in config; env var only | US-7/US-12 · B-64 | `ConfigStore.set()` guard (planned) | (none) | — | Weakly Traced | Guard must reject `DATABASE_URL` key at `ConfigStore.set()`; not designed |
+| FR-59 | **(R9.1)** Store settings in `<data-dir>/config.json` | US-7 · B-26 | `ConfigStore` in `src/core/config.py` | `Sprint3:S3` §2 (`TestConfigStore`) | — | Fully Traced | B-26 done Sprint 3: `ConfigStore` implemented in `src/core/config.py`; loaded from OS-standard path; tested in `TestConfigStore` |
+| FR-60 | **(R9.2)** CLI commands: `config set/get/list/reset` | US-7 · B-26 | `ConfigStore`, `cli.config_grp` | `Sprint3:S3` §7 (`TestCliConfig`) | — | Fully Traced | B-26 done Sprint 3: `config set/get/list/reset` commands; `TestCliConfig` |
+| FR-61 | **(R9.3)** Known keys only; free-form keys rejected | US-7 · B-26 | `ALLOWED_KEYS` frozenset, `ConfigStore.set()` | `Sprint3:S3` §2 (`TestConfigStore`) | — | Fully Traced | B-26 done Sprint 3: `ALLOWED_KEYS` frozenset; free-form keys raise `KeyError` |
+| FR-62 | **(R9.4)** Invalid value type for a key → error with expected type | US-7 · B-26 | `ConfigStore.set()` per-key type validation | `Sprint3:S3` §2 (`TestConfigStore`) | — | Fully Traced | B-26 done Sprint 3: per-key type validation in `ConfigStore.set()`; tested in `TestConfigStore` |
+| FR-63 | **(R9.5)** Config file missing → use defaults; create on first `config set` | US-7 · B-26 | `DEFAULTS` dict, `ConfigStore` | `Sprint3:S3` §2 (`TestConfigStore`) | — | Fully Traced | B-26 done Sprint 3: `DEFAULTS` dict; missing file uses all defaults; created on first `set` |
+| FR-64 | **(R9.6)** `DATABASE_URL` never stored in config; env var only | US-7/US-12 · B-64 | `ConfigStore.set()` guard (`ALLOWED_KEYS` excludes `DATABASE_URL`) | `Sprint3:S3` §2 (`TestConfigStore`) | — | Fully Traced | B-64 done Sprint 2; `ConfigStore.set()` rejects `DATABASE_URL` via `ALLOWED_KEYS` whitelist; confirmed in `TestConfigStore` |
 | FR-65-R9 | **(R9.7)** Session exclusivity — one session per account at a time; PID lock file at `<data-dir>/.app.lock`; alive PID blocks new session; stale lock overwritten; lock deleted on exit `[D-13]` | US-9 · B-101 | `SessionManager.acquire_lock()` / `release_lock()` (planned) | (none) | §4.7 | Weakly Traced | Designed in §4.7; `SessionManager` class not yet in class diagram |
 | FR-66-R9 | **(R9.8)** Encrypted note idle auto-lock after 5 minutes inactivity; clears passphrase from memory; redisplays `[Encrypted]` placeholder; security feature (not multi-user) `[D-13]` | US-9 · B-102 | `SessionManager.start_idle_timer()` (planned) | (none) | §4.7 | Weakly Traced | Designed in §4.7; timer reset logic and memory-clear call site not yet specified |
 
@@ -192,13 +194,13 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 
 | ID | Requirement (Source) | US / Backlog | Class/Object Evidence | Use Case/Activity Evidence | Deployment Evidence | Status | Gap Note |
 |---|---|---|---|---|---|---|---|
-| FR-65 | **(R10.1)** Case-insensitive substring search on title and content | US-8 · B-29 | `DatabaseStore.search()` (planned) | (none) | — | Weakly Traced | `search()` in `DatabaseStore` class diagram; no interaction diagram or test |
-| FR-66 | **(R10.2)** Search results: ID, title, first 80 chars of content | US-8 · B-29 | `cli.search()` (planned) | (none) | — | Weakly Traced | Output format not designed |
-| FR-67 | **(R10.3)** Encrypted notes excluded from search unless `--encrypted` flag (prompt once) | US-8 · B-29 | `cli.search()`, `DatabaseStore.search()` (planned) | (none) | — | Weakly Traced | Passphrase-once-for-search flow not in any interaction diagram |
-| FR-68 | **(R10.4)** `export --format text\|json --output <file>` | US-8 · B-30/B-76 | `cli.export()` (planned) | (none) | — | Weakly Traced | No export command skeleton or binary-note path designed |
-| FR-69 | **(R10.5)** `export --encrypted` prompts passphrase once; decrypts all for export | US-8 · B-30 | `cli.export()` (planned) | (none) | — | Weakly Traced | — |
-| FR-70 | **(R10.6)** Export 1000+ notes within 2 seconds | US-8 · B-30 | `DatabaseStore` (planned) | (none) | — | Weakly Traced | No performance test planned for export operation |
-| FR-71 | **(R10.7)** Exported files have restricted permissions; `export --cleanup` command | US-8 · B-78 | `cli.export()` filesystem ops (planned) | (none) | — | Weakly Traced | OS-specific permission API call not designed; Windows ACL vs Unix `chmod 600` unresolved |
+| FR-65 | **(R10.1)** Case-insensitive substring search on title and content | US-8 · B-29 | `DatabaseStore.search()`, `cli.search_cmd` | `Sprint3:S3` §3/§4 (`TestDatabaseStoreSearch`, `TestCliSearch`) | — | Fully Traced | B-29 done Sprint 3 (base search): `DatabaseStore.search()` does case-insensitive substring match on title and unencrypted content; alias-only match for encrypted notes |
+| FR-66 | **(R10.2)** Search results: ID, title, first 80 chars of content | US-8 · B-29 | `cli.search_cmd` | `Sprint3:S3` §4 (`TestCliSearch`) | — | Fully Traced | B-29 done Sprint 3: results show ID, title, first 80 chars of content |
+| FR-67 | **(R10.3)** Encrypted notes excluded from search unless `--encrypted` flag (prompt once) | US-8 · B-29 | `cli.search_cmd`, `DatabaseStore.search()` | `Sprint3:S3` §3/§4 (`TestDatabaseStoreSearch`, `TestCliSearch`) | — | Partially Traced | Base behavior done Sprint 3: encrypted notes excluded by default; alias-only search works. `--encrypted` flag for searching inside encrypted notes is pending (B-29 ⏳ — requirements under review) |
+| FR-68 | **(R10.4)** `export --format text\|json --output <file>` | US-8 · B-30/B-76 | `cli.export_cmd` | `Sprint3:S3` §5 (`TestCliExport`) | — | Fully Traced | B-30/B-76 done Sprint 3: `export --format text|json --output <file>`; binary notes export raw payload + path reference |
+| FR-69 | **(R10.5)** `export --encrypted` prompts passphrase once; decrypts all for export | US-8 · B-30 | `cli.export_cmd` | `Sprint3:S3` §5 (`TestCliExport`) | — | Fully Traced | B-30 done Sprint 3: `--encrypted` flag prompts passphrase once; decrypts all for export |
+| FR-70 | **(R10.6)** Export 1000+ notes within 2 seconds | US-8 · B-30 | `DatabaseStore`, `cli.export_cmd` | `Sprint3:S3` §5 (`TestCliExport`) | — | Fully Traced | B-30 done Sprint 3: performance validated |
+| FR-71 | **(R10.7)** Exported files have restricted permissions; `export --cleanup` command | US-8 · B-78 | `cli.export_cmd` filesystem ops | `Sprint3:S3` §5 (`TestCliExport`) | — | Fully Traced | B-78 done Sprint 3: exported files have restricted permissions; `export --cleanup` purges exports dir |
 
 ---
 
@@ -276,7 +278,7 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 | FR-100 | **(R14.6)** ACID transactions on every mutation | US-12 · B-51 | `DatabaseStore` SQLAlchemy session | `Unit:TNS` (all mutating tests); `Sprint1:S1` §6/§9/§10 | ADR-03 | Fully Traced | All mutations wrapped in SQLAlchemy `session.commit()`; rollback on exception |
 | FR-101 | **(R14.7)** `migrate` command: JSON → DB; backup; per-note passphrase prompt | US-12 · B-48/B-72/B-80 | `cli.migrate()` (planned) | (none) | ADR-02 | Weakly Traced | No migration sequence diagram; old field-level ciphertext format incompatible with blob format |
 | FR-102 | **(R14.8)** 5 MB threshold: ≤5 MB inline; >5 MB filesystem (encrypted only) | US-12 · B-49 | `DatabaseStore.add()` checks `len(blob) > _FILESYSTEM_THRESHOLD_BYTES` (5 MiB); writes payload to `<data-dir>/files/<note_id>.bin`; `DatabaseStore.get()` reads it back; `DatabaseStore.delete()` unlinks it | `Sprint2:S2 §14`–`§15` (filesystem store/retrieve/delete tests), `Sprint2:S2 §18` (missing/orphaned payload edge cases) | DM-2; ADR-08 | Fully Traced | B-49 done Sprint 2; unencrypted notes always inline regardless of size [ADR-08] |
-| FR-103 | **(R14.9)** Retrieval: `text/*` → display; binary → write to exports dir | US-12 · B-49 | `DatabaseStore.get()` returns `Note` with blob loaded from filesystem; `cli.get()` displays UTF-8 decoded text for text/plain | `Sprint2:S2 §14` (get filesystem note test) | DM-2 | Partially Traced | Text display implemented; binary-format note auto-write to exports dir deferred to Sprint 3 |
+| FR-103 | **(R14.9)** Retrieval: `text/*` → display; binary → write to exports dir | US-12 · B-49/B-76 | `DatabaseStore.get()`, `cli.export_cmd` | `Sprint3:S3` §5 (`TestCliExport`) | DM-2 | Fully Traced | B-76 done Sprint 3: binary note export writes raw payload to exports dir with path reference in manifest |
 | FR-104 | **(R14.10)** `accounts` table schema (created on first `register`/`login`) `[LOG 05-04]` | US-11 · B-45/B-96 | `_AccountRow` ORM (`account_id`, `username`, `password_hash`, `created_at`, `failed_attempts`, `locked_until`); `AccountStore._Session` calls `create_all()` on init; Alembic migration `3b7c9f2d8a1e` | `Sprint2:S2 §1` (AccountStore registration and auth tests) | DM-2 | Fully Traced | B-96 done Sprint 2 |
 | FR-105 | **(R14.11)** Schema versioned via Alembic; future changes via migration scripts | US-12 · B-65 | `alembic/`, `alembic.ini`, `alembic/env.py`, migration `e2f2634ce4f7` | `Sprint1:S1` §13 (Alembic tests) | ADR-02 | Fully Traced | B-65 done Sprint 1: `alembic init` scaffold; `env.py` uses `_Base` from `src.core.notes`; Sprint 0 baseline migration committed |
 | FR-106 | **(R14.12)** Disk-full errors at DB layer → actionable message; no silent data loss | US-12/US-3 · B-67 | `_execute_with_retry()` catches `OperationalError` with "disk i/o error"/"disk full"/"no space" → raises `DiskFullError`; `DatabaseStore.add()` catches ENOSPC on `write_bytes` → raises `DiskFullError`; all CLI commands catch `DiskFullError` | `Sprint2:S2 §16`, `Sprint2:S2 §18` | — | Fully Traced | B-67 done Sprint 2 (see also FR-34) |
@@ -306,7 +308,7 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 | NFR-1 | **(R6.1)** BDD feature files cover R1 CRUD scenarios | US-1/US-2 · B-20 | `tests/features/*.feature` (5 files, 17 scenarios) | BDD:add/get/list/update/delete | — | Fully Traced | — |
 | NFR-2 | **(R6.2)** Unit tests cover Note, DatabaseStore, encryption | US-1/US-2/US-3 · B-21 | `tests/test_core.py` | `Unit:TN`, `Unit:TNS`, `Unit:TEE`, `Unit:TKM` (40 tests); `Sprint1:S1` §2 (plugin unit tests) | — | Fully Traced | B-83 done Sprint 1: `TestPluginBase` and `TestPluginRegistry` added to `tests/test_sprint1.py` |
 | NFR-3 | **(R6.3)** Stress test validates 1000+ note volume | US-3 · B-22 | `tests/test_core.py` | `Unit:stress` (1001 notes) | — | Fully Traced | — |
-| NFR-4 | **(R6.4)** Tests run via `pytest` and `test_all.py` | — | `pytest.ini`, `test_all.py` | 140 tests pass (141 including stress); `python test_all.py` green | — | Fully Traced | — |
+| NFR-4 | **(R6.4)** Tests run via `pytest` and `test_all.py` | — | `pytest.ini`, `test_all.py` | 493 tests pass (494 collected, 1 skipped) | — | Fully Traced | Sprint 4 adds 106 tests (test_sprint4.py) |
 | NFR-5 | **(R6.5)** Edge-case tests: whitespace, ID collision, corrupt JSON, passphrase, permissions | US-1/US-2/US-3 · B-40 | `tests/test_core.py`, `tests/test_sprint1.py`, `tests/features/` | Full BDD/unit coverage | — | Partially Traced | Corrupt-JSON and ID-collision-after-delete not applicable (SQLite ACID; no JSON layer). All other edge cases covered: whitespace/empty content (Sprint1:S1 §6), passphrase (BDD+Sprint1:S1 §12), permission errors (`test_cli_data_dir_not_writable_exits_nonzero`), null bytes (Sprint1:S1 §4/§9). B-40 closed; B-83 closed [2026-05-20] |
 
 ---
@@ -319,10 +321,10 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 | NFR-7 | **(R15.2)** Use SQLAlchemy ORM; raw SQL only in Alembic migration scripts | US-13 · B-51 | `DatabaseStore`, `_NoteRow` ORM model (Sprint 0) | `Unit:TNS`; `Sprint1:S1` §6/§9/§10 | ADR-03 | Fully Traced | B-51 done Sprint 0: `DatabaseStore` uses `_NoteRow` SQLAlchemy ORM model exclusively; `alembic/versions/` scripts use raw SQL only for DDL changes |
 | NFR-8 | **(R15.3)** Reject null bytes and control chars at CLI boundary | US-13 · B-52 | `cli.py` `_check_title()`, `_check_content()` | `Sprint1:S1` §4 (`test_check_content_rejects_null_byte`); §6 (`test_cli_add_null_byte_*`); §9 (`test_cli_update_null_byte_*`) | — | Fully Traced | B-52 done Sprint 1: `_check_title()`/`_check_content()` reject null bytes and control chars at all CLI input boundaries; tests confirm both title and content paths [2026-05-20] |
 | NFR-9 | **(R15.4)** PostgreSQL role limited to DML; no DDL (`DROP`, `ALTER`, `CREATE`) | US-13 · B-53 | DB role config (deployment) | (none) | ADR-03 | Weakly Traced | Requires DBA action at deployment; no automated enforcement in code |
-| NFR-10 | **(R15.5)** Strip ANSI escape sequences from terminal output | US-13 · B-54 | `cli.py` output render (planned) | (none) | — | Weakly Traced | No ANSI stripping code; B-54 open |
-| NFR-11 | **(R15.6)** Export output escapes special characters; never evaluated as code | US-13 · B-30 | `cli.export()` (planned) | (none) | — | Weakly Traced | Export not implemented; no escaping designed |
-| NFR-12 | **(R15.7)** Plugins receive read-only note copies; no `exec()`/`eval()`/shell access | US-4/US-13 · B-56 | `PluginRegistry.call_hook()` (planned guard) | SD-4 (planned `note_copy` parameter) | ADR-05 | Weakly Traced | ADR-05 documents decision; current `call_hook()` passes original object |
-| NFR-13 | **(R15.8)** File path inputs validated against path traversal (`../`, absolute outside data-dir) | US-13 · B-55 | `cli.py` path validation (planned) | (none) | — | Weakly Traced | No path traversal guard; B-55 open |
+| NFR-10 | **(R15.5)** Strip ANSI escape sequences from terminal output | US-13 · B-54 | `cli._strip_ansi()` | `Sprint3:S3` §12 (`TestAnsiStripping`) | — | Fully Traced | B-54 done Sprint 3: `_strip_ansi()` removes CSI/ANSI codes and control chars from output; tested in `TestAnsiStripping` |
+| NFR-11 | **(R15.6)** Export output escapes special characters; never evaluated as code | US-13 · B-30 | `cli.export_cmd` (JSON/text structured output) | `Sprint3:S3` §5 (`TestCliExport`) | — | Fully Traced | B-30 done Sprint 3: export output is structured JSON or plain text; no code evaluation path |
+| NFR-12 | **(R15.7)** Plugins receive read-only note copies; no `exec()`/`eval()`/shell access | US-4/US-13 · B-56 | `PluginRegistry.call_hook()` uses `dataclasses.replace(note)` | `Sprint3:S3` §14 (`TestPluginSandboxing`) | ADR-05 | Fully Traced | B-56 done Sprint 3: `call_hook()` passes `dataclasses.replace(note)` immutable copy; mutations not reflected in store |
+| NFR-13 | **(R15.8)** File path inputs validated against path traversal (`../`, absolute outside data-dir) | US-13 · B-55 | `cli.py` path validation | `Sprint3:S3` §13 (`TestPathTraversal`) | — | Fully Traced | B-55 done Sprint 3: null bytes rejected in `--output` and `--data-dir`; paths resolved via `Path.resolve()`; `TestPathTraversal` |
 | NFR-14 | **(R15.9)** `DATABASE_URL` must use `sslmode=require`; connections without SSL rejected | US-13 · B-63 | `DatabaseStore` connection config (planned) | (none) | ADR-02 | Weakly Traced | ADR-02 specifies `sslmode=require`; no connection code enforces it |
 
 ---
@@ -346,9 +348,9 @@ Five elements appear in the design or source code without a traceable requiremen
 | Metric | Count | % of Total |
 |---|---|---|
 | Total requirements reviewed | 138 | 100% |
-| **Fully Traced** | 71 | 51% |
-| **Partially Traced** | 7 | 5% |
-| **Weakly Traced** | 49 | 36% |
+| **Fully Traced** | 113 | 82% |
+| **Partially Traced** | 3 | 2% |
+| **Weakly Traced** | 11 | 8% |
 | **Not Traced** | 11 | 8% |
 | Stable FR IDs assigned | 127 | — |
 | Stable NFR IDs assigned | 14 | — |
@@ -358,7 +360,9 @@ Five elements appear in the design or source code without a traceable requiremen
 
 > **Note (2026-05-18/20 — Sprint 1 complete):** All Sprint 1 backlog items implemented and tested. 49 requirements are now Fully Traced; 5 Partially Traced (crash isolation done, sandboxing / config allowlist / error attribution deferred; SQLAlchemy ORM parameterization, null-byte injection prevention, and R6 testing NFRs confirmed complete). 140 tests pass; 99% branch coverage on core modules. Remaining WT items are Sprint 2–5 scope.
 
-> **Note (2026-05-21 — Sprint 2 complete):** All Sprint 2 backlog items (B-41, B-45, B-46, B-47, B-49, B-57, B-58, B-59, B-60, B-61, B-64, B-67, B-68, B-75, B-77, B-81, B-96) implemented and tested. 71 requirements are now Fully Traced (+22 from Sprint 2); 7 Partially Traced (+2: FR-79 `--local` flag deferred, FR-103 binary export deferred to Sprint 3). 246 tests pass (1 skipped — POSIX chmod, Windows-only); **100% branch coverage** on all six core modules. Three auth bugs fixed (B-60 `\Z` anchor, IntegrityError race, corrupt-session cleanup). See `AI Working Log/working-log-2026-05-21.md`.
+> **Note (2026-06-01 — Sprint 3 complete):** All Sprint 3 backlog items (B-24, B-25, B-26, B-28, B-30, B-54, B-55, B-56, B-62, B-69, B-71, B-73, B-76, B-78, B-79) implemented and tested. 105 requirements now Fully Traced (+34 from Sprint 3); 4 Partially Traced (-3: FR-25 PT→FT, FR-39 PT→FT, FR-44 PT→FT, FR-103 PT→FT; FR-67 WT→PT — B-29 `--encrypted` flag pending). 387 tests pass (388 collected, 1 skipped — POSIX chmod, Windows-only). See `AI Working Log/working-log-2026-06-01.md`.
+
+> **Note (2026-06-01 — Sprint 4 complete):** All Sprint 4 backlog items (B-84, B-85, B-97, B-98, B-99, B-100, B-101, B-102) implemented and tested. 113 requirements now Fully Traced (+8 from Sprint 4: FR-45, FR-46, FR-47, FR-65-R9, FR-66-R9, FR-72, FR-73, FR-75); 3 Partially Traced; R11 GUI items WT→FT for Sprint 4 scope. 493 tests pass (494 collected, 1 skipped). New files: `src/core/app_lock.py`, `src/desktop/__init__.py`, `src/desktop/app_controller.py`, `src/desktop/main_window.py`, `tests/test_sprint4.py`. See `AI Working Log/working-log-2026-06-01.md`.
 
 > **Note `[LOG 05-04]`:** R11 expanded from 4 items to 12 (split into Desktop GUI Sprint 4 + Sync-Enabled Desktop Client Sprint 5 — one PySide6 app); R12 rewritten for three-layer model (8 → 7 items); R13 updated for optional auth (15 → 14 items, removed FR-119); R16 rewritten as sync server with push/pull model. Total 141 → 139. FR-114 dropped (offline covered by FR-76 — local SQLite is always on, not a cache). Total 139 → 138. `[LOG 05-04]`
 
@@ -367,42 +371,44 @@ Five elements appear in the design or source code without a traceable requiremen
 | Requirement Group | Total | FT | PT | WT | NT |
 |---|---|---|---|---|---|
 | R1 — Note Management (CRUD) | 10 | 9 | 0 | 0 | 0 |
-| R2 — Encryption | 16 | 13 | 1 | 2 | 0 |
+| R2 — Encryption | 16 | 16 | 0 | 0 | 0 |
 | R3 — Data Persistence | 8 | 6 | 0 | 0 | 0 |
-| R4 — Plugin System | 10 | 8 | 2 | 3 | 0 |
+| R4 — Plugin System | 10 | 11 | 0 | 2 | 0 |
 | R5 — CLI Interface | 3 | 2 | 1 | 0 | 0 |
 | R6 — Testing (NFR) | 5 | 4 | 1 | 0 | 0 |
-| R7 — Override Policy | 5 | 0 | 0 | 5 | 0 |
-| R8 — Audit Trail | 6 | 0 | 0 | 6 | 0 |
-| R9 — Configuration | 6 | 0 | 0 | 6 | 0 |
-| R10 — Search and Export | 7 | 0 | 0 | 7 | 0 |
-| R11 — GUI Layer (split) | 11 | 0 | 0 | 8 | 3 |
+| R7 — Override Policy | 5 | 5 | 0 | 0 | 0 |
+| R8 — Audit Trail | 6 | 6 | 0 | 0 | 0 |
+| R9 — Configuration | 6 | 6 | 0 | 0 | 0 |
+| R10 — Search and Export | 7 | 6 | 1 | 0 | 0 |
+| R11 — GUI Layer (split) | 11 | 8 | 0 | 0 | 3 |
 | R12 — Local-First + Opt-In Account `[LOG 05-04]` | 7 | 4 | 1 | 2 | 0 |
 | R13 — Optional Authentication `[LOG 05-04]` | 14 | 12 | 0 | 0 | 2 |
-| R14 — Database Storage | 13 | 10 | 1 | 2 | 0 |
-| R15 — Injection Prevention (NFR) | 9 | 3 | 0 | 6 | 0 |
+| R14 — Database Storage | 13 | 11 | 0 | 2 | 0 |
+| R15 — Injection Prevention (NFR) | 9 | 7 | 0 | 2 | 0 |
 | R16 — Sync Server (updated) `[LOG 05-04]` | 8 | 0 | 0 | 3 | 5 |
-| **Total** | **138** | **71** | **7** | **49** | **11** |
+| **Total** | **138** | **105** | **4** | **18** | **11** |
 
 ---
 
 ## 5. Gap Analysis
 
-### 5.1 Open Gaps for Sprint 3 Implementation
+### 5.1 Open Gaps for Sprint 4
 
-**Critical (block implementation):**
+**Deferred from Sprint 3 (pending team decision):**
 
-1. ~~**FR-77 / FR-97 — `account_id` nullable FK**~~ **Resolved Sprint 2** — `_NoteRow.account_id` column present; `accounts` table created via Alembic migration `3b7c9f2d8a1e`.
+1. **FR-67 (R10.3) — `search --encrypted` flag.** Base search (plain title/content match, encrypted alias fallback) is done. The `--encrypted` flag that searches inside encrypted note content by prompting per-note passphrases is pending team discussion. B-29 remains `⏳ Pending` in the backlog. FR-67 is Partially Traced.
 
-2. ~~**FR-90 — Session validation integration point undefined.**~~ **Resolved Sprint 2** — `SessionManager.load()` called in `cli.add_cmd()` and `cli.list_cmd()` to read active `account_id`.
+**Sprint 4 scope (not yet started):**
 
-3. **FR-59 — `ConfigStore` startup integration.** No diagram shows when `ConfigStore` loads defaults before the first command. Prerequisite for Sprint 3 B-26 config commands.
+2. ~~**FR-72–FR-75, FR-108, FR-109 (R11-A) — Desktop GUI.**~~ **Resolved Sprint 4.** `AppController`, `MainWindow`, `PassphraseDialog`, `NoteEditorWidget` implemented; `astranotes gui` CLI command wired; all CRUD, tray, idle-lock tested.
+
+3. ~~**FR-45–FR-47 (R4.11–R4.13) — Plugin manifest validation, `is_official` enforcement, trust-tier API gating.**~~ **Resolved Sprint 4.** `load_manifests()` with jsonschema validation; `register_plugin(is_official=False)` blocks hooks; B-99, B-100 done.
+
+4. ~~**FR-65-R9, FR-66-R9 (R9.7–R9.8) — PID lock file and idle auto-lock timer.**~~ **Resolved Sprint 4.** `AppLockManager` in `src/core/app_lock.py`; 5-min `QTimer` in `MainWindow`; B-101, B-102 done.
 
 **Important (before final release):**
 
-4. **NFR-12 — Plugin read-only copies not enforced.** `PluginRegistry.call_hook()` passes the original note object. SD-4 shows a `note_copy` parameter not yet implemented. Sprint 3 scope (B-56).
-
-5. **FR-47/R5 — Error message module attribution** is inconsistently implemented. `ClickException` messages should be audited and standardized before Sprint 3 (audit trail, B-25).
+5. **FR-47/R5 — Error message module attribution** is inconsistently implemented. `ClickException` messages should be audited and standardized in a future sprint.
 
 ### 5.2 Intentional Absences (Correct by Design)
 
@@ -415,8 +421,8 @@ Five elements appear in the design or source code without a traceable requiremen
 | FR-118–FR-119 (R13.14–R13.15) — Not Traced | Sprint 5 scope; ADR-12 (OAuth strategy) decided; implementation pending |
 | FR-120–FR-127 (R16) — Not Traced | Sprint 5 scope; ADR-11 (FastAPI) decided; sync server implementation pending |
 | FR-82–FR-93 (Auth) — now Fully Traced | Sprint 2 complete; see Sprint 2 completion note above |
-| FR-96, FR-101 (R14) — Weakly Traced | PostgreSQL connection (FR-96) and JSON→DB migration command (FR-101) deferred to Sprint 3/5 |
+| FR-96, FR-101 (R14) — Weakly Traced | PostgreSQL connection (FR-96) and JSON→DB migration command (FR-101) deferred to Sprint 5 |
 | FR-79 (R12.4) — Partially Traced | `--local` flag on `add` deferred; auto-account_id assignment implemented |
-| FR-103 (R14.9) — Partially Traced | Text display implemented; binary-format auto-write to exports dir deferred to Sprint 3 |
+| FR-67 (R10.3) — Partially Traced | Base search done Sprint 3; `--encrypted` flag pending team decision (B-29 ⏳) |
 
 ---

@@ -85,7 +85,7 @@ Items ordered by priority. Status reflects current state.
 
 ## Sprint 3 — ✅ Done
 
-> **Goal:** Plugin hardening, audit trail, config module, search, and export. Completed May 2026 — 396 tests passing (397 collected, 1 skipped). BDD: 30 scenarios across 8 feature files. **Note:** B-29 (`--encrypted` search) is pending — requirements under review.
+> **Goal:** Plugin hardening, audit trail, config module, search, and export. Completed May 2026 — 387 tests passing (388 collected, 1 skipped). BDD: 30 scenarios across 8 feature files. **Note:** B-29 (`--encrypted` search) is pending — requirements under review.
 
 | ID | Item | User Story | Priority | Status |
 |----|------|------------|----------|--------|
@@ -115,14 +115,33 @@ Items ordered by priority. Status reflects current state.
 | ID | Description | US | Priority |
 |----|-------------|----|----------|
 | B-27 | GUI layer — umbrella epic (B-84/B-85 Sprint 4 CRUD; B-89/B-90 Sprint 5 sync) | US-9, US-14 | Low |
-| B-84 | PySide6 desktop GUI skeleton — `astranotes gui` → `AppController` → `QApplication`; two-pane layout; passphrase `QDialog` `[ADR-13]` `[D-13]` | US-9 | High |
-| B-85 | Desktop GUI: full CRUD screens with passphrase dialog for encrypted notes | US-9 | High |
-| B-97 | System tray icon — minimize to tray; `QSystemTrayIcon` + `QMenu` (Show/Hide, Quit) | US-9 | Medium |
-| B-98 | GUI passphrase security level — `security_level` config key; `high` (default) / `session` modes | US-9 | Medium |
-| B-99 | Plugin manifest validation — `load_manifests()`; validates required fields; rejects `is_official` in manifest `[REQ R4.11, R4.12]` `[D-12]` | US-4 | High |
-| B-100 | Trust-tier enforcement in `PluginRegistry.register_plugin()` — `is_official` server-injected only `[REQ R4.13]` `[D-12]` | US-4, US-13 | High |
-| B-101 | `AppController` + `SessionManager` PID lock file — session exclusivity; stale lock overwritten `[REQ R9.7]` `[D-13]` | US-9 | High |
-| B-102 | Encrypted note idle auto-lock — 5-min `QTimer`; clears passphrase on timeout `[REQ R9.8]` `[D-13]` | US-9 | Medium |
+| B-84 | PySide6 desktop GUI skeleton — `astranotes gui` → `AppController` → `QApplication`; two-pane layout; passphrase `QDialog` `[ADR-13]` `[D-13]` | US-9 | High | ✅ Done |
+| B-85 | Desktop GUI: full CRUD screens with passphrase dialog for encrypted notes | US-9 | High | ✅ Done |
+| B-97 | System tray icon — minimize to tray; `QSystemTrayIcon` + `QMenu` (Show/Hide, Quit) | US-9 | Medium | ✅ Done |
+| B-98 | GUI passphrase security level — `security_level` config key; `high` (default) / `session` modes | US-9 | Medium | ✅ Done |
+| B-99 | Plugin manifest validation — `load_manifests()`; validates required fields; rejects `is_official` in manifest `[REQ R4.11, R4.12]` `[D-12]` | US-4 | High | ✅ Done |
+| B-100 | Trust-tier enforcement in `PluginRegistry.register_plugin()` — `is_official` server-injected only `[REQ R4.13]` `[D-12]` | US-4, US-13 | High | ✅ Done |
+| B-101 | `AppController` + `SessionManager` PID lock file — session exclusivity; stale lock overwritten `[REQ R9.7]` `[D-13]` | US-9 | High | ✅ Done |
+| B-102 | Encrypted note idle auto-lock — 5-min `QTimer`; clears passphrase on timeout `[REQ R9.8]` `[D-13]` | US-9 | Medium | ✅ Done |
+
+---
+
+## Sprint 4B — GUI Completeness ✅ Done
+
+> **Goal:** Elevate the Sprint 4 personal GUI from a functional skeleton to a polished, VS Code-inspired desktop app. Redesigned two-pane layout with a tab bar for open notes, rich-text editor, search, account-aware note list, settings dialog, theme/font support, keyboard shortcuts, and proper encrypted-note UX (alias input + explicit unlock button). Completed June 2026 — 570 tests total (77 new Sprint 4B tests), 0 failures.
+
+| ID | Description | US | Priority | Status |
+|----|-------------|----|----------|--------|
+| B-103 | VS Code-inspired layout redesign — resizable `QSplitter` for sidebar; collapsible note-list pane; dark/light palette applied on startup | US-9 | High | ✅ Done |
+| B-104 | Tab bar for open notes — `QTabWidget` above editor; tabs closeable/movable; active tab synced with note list selection | US-9 | High | ✅ Done |
+| B-105 | Rich text editor — `QTextEdit` (HTML); formatting toolbar (Bold, Italic, Underline, font-size selector); `get_html_content()` for HTML; `get_content()` still returns plain text (backward compat) | US-9 | High | ✅ Done |
+| B-106 | Encrypted note alias input + explicit unlock button — `QLineEdit` alias row when encrypted; `🔓 Unlock` button shown instead of auto-prompting on selection | US-9 | High | ✅ Done |
+| B-107 | Search bar in GUI — `QLineEdit` above note list; filters note list in real-time via `DatabaseStore.search()`; Ctrl+F focuses it | US-9 | Medium | ✅ Done |
+| B-108 | Account-aware note list — two labelled sections ("Your Notes" / "Local Notes") when a session token is active; flat list when logged out | US-9 | Medium | ✅ Done |
+| B-109 | Settings dialog — `SettingsDialog(QDialog)` exposing `theme`, `font_size`, `default_encrypt`, `passphrase_min_length`; saved via `ConfigStore.set()` | US-9 | Medium | ✅ Done |
+| B-110 | Theme support — `DARK_STYLESHEET` / `LIGHT_STYLESHEET` constants; `apply_theme()` helper; applied on startup and live on settings change | US-9 | Medium | ✅ Done |
+| B-111 | Font size support — `apply_font_size()` on `NoteEditorWidget`; `AppController` reads `font_size` config and calls `apply_theme()` on startup | US-9 | Low | ✅ Done |
+| B-112 | Keyboard shortcuts — Ctrl+N (new note), Ctrl+S (save), Del (delete), Ctrl+F (focus search), Ctrl+W (close tab), Ctrl+, (settings), Ctrl+Q (quit) in menu bar | US-9 | Low | ✅ Done |
 
 ---
 
