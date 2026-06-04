@@ -19,8 +19,11 @@ Refs: planning/sprint-zero-plan.md §4 (Testing Infrastructure)
 """
 from __future__ import annotations
 
+import os
 import re
 import shutil
+import stat
+import time
 from pathlib import Path
 
 import pytest
@@ -41,6 +44,36 @@ _TEST_ITERATIONS = 1_000
 # ---------------------------------------------------------------------------
 
 
+def _force_rmtree(path: Path, *, retries: int = 5, delay: float = 0.3) -> None:
+    """Remove *path* tree robustly on Windows where open handles block deletion.
+
+    On Windows, SQLite journal files and database handles held by a previous
+    (possibly killed) pytest process cause ``shutil.rmtree`` to raise
+    ``PermissionError``.  The ``onerror`` handler flips the read-only bit and
+    retries; if the path is still locked we sleep briefly and try the whole
+    rmtree again up to *retries* times.
+    """
+    def _handle_error(
+        func: object, failing_path: str, excinfo: object
+    ) -> None:
+        # Make the file/dir writable and retry the removal call.
+        try:
+            os.chmod(failing_path, stat.S_IWRITE)
+            func(failing_path)  # type: ignore[operator]
+        except OSError:
+            pass  # will be retried at the top level
+
+    for attempt in range(retries):
+        try:
+            shutil.rmtree(path, onerror=_handle_error)
+            return  # success
+        except OSError:
+            if attempt < retries - 1:
+                time.sleep(delay)
+    # Final attempt — let it propagate if still locked
+    shutil.rmtree(path, onerror=_handle_error)
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _wipe_test_db_before_session() -> None:
     """Remove the entire .test_db/ tree at the start of each test session.
@@ -49,10 +82,13 @@ def _wipe_test_db_before_session() -> None:
     before each test, but this session-level fixture guarantees a fully
     clean slate on every ``pytest`` run — no stale databases from a
     previous session can survive.
+
+    Uses ``_force_rmtree`` so that Windows file-handle locks left by a
+    previously killed pytest process do not cause 500+ PermissionErrors.
     """
     test_db_root = Path(".test_db")
     if test_db_root.exists():
-        shutil.rmtree(test_db_root)
+        _force_rmtree(test_db_root)
     test_db_root.mkdir(parents=True, exist_ok=True)
 
 
@@ -61,7 +97,7 @@ def _safe_test_dir(request: pytest.FixtureRequest) -> Path:
     safe_name = re.sub(r"[^\w\-]", "_", request.node.name)[:80]
     test_dir = Path(".test_db") / safe_name
     if test_dir.exists():
-        shutil.rmtree(test_dir)
+        _force_rmtree(test_dir)
     test_dir.mkdir(parents=True, exist_ok=True)
     return test_dir
 
