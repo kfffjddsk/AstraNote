@@ -107,6 +107,7 @@ class AppController:
                 config=self.config,
                 registry=self.registry,
                 data_dir=data_dir,
+                sync_url=self.config.get("sync_server_url") or "",
             )
             window.show()
 

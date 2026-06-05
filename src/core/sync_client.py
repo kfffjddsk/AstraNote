@@ -216,6 +216,26 @@ class SyncClient:
             raise SyncError(0, f"network error: {exc}") from exc
         return _wrap_response(response)
 
+    def callback_exchange(
+        self, code: str, code_verifier: str, redirect_uri: str
+    ) -> dict[str, Any]:
+        """Call ``POST /auth/callback`` with PKCE verifier; return token response.
+
+        Refs: [BL B-87] [REQ R13.14]
+        """
+        try:
+            response = self._client.post(
+                "/auth/callback",
+                json={
+                    "code": code,
+                    "code_verifier": code_verifier,
+                    "redirect_uri": redirect_uri,
+                },
+            )
+        except httpx.HTTPError as exc:
+            raise SyncError(0, f"network error: {exc}") from exc
+        return _wrap_response(response)
+
     def pull(self, token: str, since: Optional[str] = None) -> dict[str, Any]:
         """Call ``GET /sync/pull?since=<since>`` with the bearer token."""
         params = {"since": since} if since else None

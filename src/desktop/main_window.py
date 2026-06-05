@@ -5,11 +5,19 @@ Refs:
   design sec. 3.1, sec. 4.7 [D-13]
 """
 from __future__ import annotations
+import base64
+import hashlib
+import http.server
 import logging
 import os
+import queue
+import secrets
+import threading
+import urllib.parse
 from pathlib import Path
 from typing import Optional
-from PySide6.QtCore import QSize, QTimer, Qt, Signal
+from PySide6.QtCore import QSize, QTimer, Qt, QUrl, Signal
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
@@ -56,6 +64,14 @@ from src.core.config import ConfigStore
 from src.core.notes import DatabaseStore, Note
 from src.core.plugin_base import PluginRegistry
 from src.core.security import KeyManager
+from src.core.sync_client import (
+    SyncClient,
+    delete_cached_token,
+    load_cached_token,
+    save_cached_token,
+)
+from src.desktop.merge_window import MergeWindow
+from src.desktop.sync_worker import SyncWorker
 logger = logging.getLogger(__name__)
 _IDLE_TIMEOUT_MS = 5 * 60 * 1000  # 300_000 ms  [REQ R9.8] [BL B-102]
 _ENCRYPTED_PLACEHOLDER = "[Encrypted]"
@@ -197,6 +213,279 @@ class PassphraseDialog(QDialog):
                 return
         self.passphrase = passphrase
         self.accept()
+
+
+# ---------------------------------------------------------------------------
+# _OAuthCallbackServer  [BL B-87, B-89]
+# ---------------------------------------------------------------------------
+class _OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
+    """Minimal HTTP handler that captures the OAuth redirect code."""
+
+    def do_GET(self) -> None:  # noqa: N802
+        parsed = urllib.parse.urlparse(self.path)
+        params = urllib.parse.parse_qs(parsed.query)
+        code = (params.get("code") or [None])[0]
+        state = (params.get("state") or [None])[0]
+        self.server._result_queue.put({"code": code, "state": state})  # type: ignore[attr-defined]
+        body = (
+            b"<html><body>"
+            b"<h2>Sign-in complete.</h2>"
+            b"<p>You can close this browser tab and return to AstraNotes.</p>"
+            b"</body></html>"
+        )
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format: str, *args: object) -> None:  # noqa: ARG002
+        pass  # suppress access-log noise
+
+
+class _OAuthCallbackServer:
+    """Temporary localhost HTTP server for capturing the OAuth redirect.
+
+    Binds to ``127.0.0.1:0`` (OS picks a free port), starts a daemon
+    thread, and exposes :pyattr:`result_queue` for the caller to poll.
+
+    Usage::
+
+        srv = _OAuthCallbackServer()
+        srv.start()
+        redirect_uri = srv.redirect_uri   # pass to auth URL
+        # ... later poll srv.result_queue.get(timeout=0)
+        srv.stop()
+    """
+
+    def __init__(self) -> None:
+        self._server = http.server.HTTPServer(("127.0.0.1", 0), _OAuthCallbackHandler)
+        self._server._result_queue: queue.Queue = queue.Queue()  # type: ignore[attr-defined]
+        self._thread: Optional[threading.Thread] = None
+
+    @property
+    def port(self) -> int:
+        return self._server.server_address[1]
+
+    @property
+    def redirect_uri(self) -> str:
+        return f"http://127.0.0.1:{self.port}/"
+
+    @property
+    def result_queue(self) -> "queue.Queue[dict]":
+        return self._server._result_queue  # type: ignore[attr-defined]
+
+    def start(self) -> None:
+        self._thread = threading.Thread(
+            target=self._server.serve_forever, daemon=True
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._server.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# SyncLoginDialog  [BL B-87, B-89]
+# ---------------------------------------------------------------------------
+_GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+_GOOGLE_SCOPE = "openid email profile"
+
+
+class SyncLoginDialog(QDialog):
+    """Two-tab dialog for authenticating with the AstraNotes sync server.
+
+    Tab 1 — Local account: username + password → ``POST /auth/login``.
+    Tab 2 — Sign in with Google: PKCE flow via system browser +
+    temporary localhost redirect server → ``POST /auth/callback``.
+
+    After a successful sign-in, the token is saved via
+    :func:`~src.core.sync_client.save_cached_token` and the dialog accepts.
+
+    Refs: [BL B-87, B-89] [REQ R13.14]
+    """
+
+    def __init__(
+        self,
+        sync_client: "SyncClient",  # noqa: F821
+        data_dir: Path,
+        google_client_id: str = "",
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Sign in to Sync")
+        self.setMinimumWidth(380)
+        self._client = sync_client
+        self._data_dir = data_dir
+        self._google_client_id = google_client_id
+        self._oauth_server: Optional[_OAuthCallbackServer] = None
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(500)
+        self._poll_timer.timeout.connect(self._poll_oauth_result)
+        self._code_verifier: str = ""
+        self._redirect_uri: str = ""
+        self._state_nonce: str = ""
+
+        layout = QVBoxLayout(self)
+        self._tabs = QTabWidget()
+        self._tabs.addTab(self._build_local_tab(), "Local account")
+        self._tabs.addTab(self._build_google_tab(), "Sign in with Google")
+        layout.addWidget(self._tabs)
+
+        cancel_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
+        cancel_box.rejected.connect(self.reject)
+        layout.addWidget(cancel_box)
+
+    # ------------------------------------------------------------------
+    # Tab builders
+    # ------------------------------------------------------------------
+    def _build_local_tab(self) -> QWidget:
+        w = QWidget()
+        form = QFormLayout(w)
+        form.setContentsMargins(12, 12, 12, 12)
+        self._username_edit = QLineEdit()
+        self._username_edit.setPlaceholderText("Username")
+        form.addRow("Username:", self._username_edit)
+        self._password_edit = QLineEdit()
+        self._password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self._password_edit.setPlaceholderText("Password")
+        self._password_edit.returnPressed.connect(self._on_local_signin)
+        form.addRow("Password:", self._password_edit)
+        self._local_error = QLabel("")
+        self._local_error.setWordWrap(True)
+        self._local_error.setStyleSheet("color: red;")
+        form.addRow(self._local_error)
+        signin_btn = QPushButton("Sign in")
+        signin_btn.setDefault(True)
+        signin_btn.clicked.connect(self._on_local_signin)
+        form.addRow(signin_btn)
+        return w
+
+    def _build_google_tab(self) -> QWidget:
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+        if not self._google_client_id:
+            layout.addWidget(
+                QLabel(
+                    "Google sign-in is not configured on this server.\n"
+                    "Use the 'Local account' tab instead."
+                )
+            )
+            layout.addStretch(1)
+            return w
+        desc = QLabel(
+            "Click the button below to open Google sign-in in your browser.\n"
+            "Return here once you have signed in."
+        )
+        desc.setWordWrap(True)
+        layout.addWidget(desc)
+        self._google_btn = QPushButton("Open Google sign-in")
+        self._google_btn.clicked.connect(self._on_google_signin)
+        layout.addWidget(self._google_btn)
+        self._google_status = QLabel("")
+        self._google_status.setWordWrap(True)
+        layout.addWidget(self._google_status)
+        layout.addStretch(1)
+        return w
+
+    # ------------------------------------------------------------------
+    # Local sign-in
+    # ------------------------------------------------------------------
+    def _on_local_signin(self) -> None:
+        username = self._username_edit.text().strip()
+        password = self._password_edit.text()
+        if not username or not password:
+            self._local_error.setText("Username and password are required.")
+            return
+        self._local_error.setText("")
+        try:
+            from src.core.sync_client import SyncClient, save_cached_token
+            response = self._client.login(username, password)
+            save_cached_token(self._data_dir, response)
+            self.accept()
+        except Exception as exc:
+            self._local_error.setText(str(exc))
+
+    # ------------------------------------------------------------------
+    # Google PKCE sign-in
+    # ------------------------------------------------------------------
+    def _on_google_signin(self) -> None:
+        self._code_verifier = secrets.token_urlsafe(43)
+        challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(self._code_verifier.encode()).digest()
+        ).rstrip(b"=").decode()
+        self._state_nonce = secrets.token_urlsafe(16)
+
+        self._oauth_server = _OAuthCallbackServer()
+        self._oauth_server.start()
+        self._redirect_uri = self._oauth_server.redirect_uri
+
+        params = urllib.parse.urlencode({
+            "response_type": "code",
+            "client_id": self._google_client_id,
+            "redirect_uri": self._redirect_uri,
+            "scope": _GOOGLE_SCOPE,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": self._state_nonce,
+            "access_type": "online",
+        })
+        auth_url = f"{_GOOGLE_AUTH_URL}?{params}"
+        QDesktopServices.openUrl(QUrl(auth_url))
+
+        if hasattr(self, "_google_btn"):
+            self._google_btn.setEnabled(False)
+        if hasattr(self, "_google_status"):
+            self._google_status.setText("Waiting for browser sign-in...")
+        self._poll_timer.start()
+
+    def _poll_oauth_result(self) -> None:
+        if self._oauth_server is None:
+            self._poll_timer.stop()
+            return
+        try:
+            result = self._oauth_server.result_queue.get_nowait()
+        except queue.Empty:
+            return
+
+        self._poll_timer.stop()
+        self._oauth_server.stop()
+        self._oauth_server = None
+
+        code = result.get("code")
+        state = result.get("state")
+        if not code or state != self._state_nonce:
+            if hasattr(self, "_google_status"):
+                self._google_status.setText("Sign-in failed: bad response. Please try again.")
+            if hasattr(self, "_google_btn"):
+                self._google_btn.setEnabled(True)
+            return
+
+        try:
+            from src.core.sync_client import save_cached_token
+            response = self._client.callback_exchange(
+                code=code,
+                code_verifier=self._code_verifier,
+                redirect_uri=self._redirect_uri,
+            )
+            save_cached_token(self._data_dir, response)
+            self.accept()
+        except Exception as exc:
+            if hasattr(self, "_google_status"):
+                self._google_status.setText(f"Sign-in failed: {exc}")
+            if hasattr(self, "_google_btn"):
+                self._google_btn.setEnabled(True)
+
+    def reject(self) -> None:
+        self._poll_timer.stop()
+        if self._oauth_server is not None:
+            self._oauth_server.stop()
+            self._oauth_server = None
+        super().reject()
+
+
 # ---------------------------------------------------------------------------
 # Settings dialog  [B-109]
 # ---------------------------------------------------------------------------
@@ -1198,15 +1487,18 @@ class MainWindow(QMainWindow):
         registry: PluginRegistry,
         data_dir: Optional[Path] = None,
         parent: Optional[QWidget] = None,
+        sync_url: str = "",
     ) -> None:
         super().__init__(parent)
         self._store = store
         self._config = config
         self._registry = registry
         self._data_dir = data_dir  # optional, for account-aware list [B-108]
+        self._sync_url = sync_url
         # State
         self._current_note: Optional[Note] = None
         self._cached_passphrase: Optional[str] = None
+        self._sync_worker: Optional[SyncWorker] = None
         self.setWindowTitle("AstraNotes")
         self.resize(1100, 680)
         self._build_menu_bar()
@@ -1274,6 +1566,20 @@ class MainWindow(QMainWindow):
         self._action_widget_gallery.triggered.connect(self._on_widget_gallery)
         self.addAction(self._action_widget_gallery)
 
+        # -€-€ Sync  [BL B-89, B-90] -€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€
+        sync_menu = menu_bar.addMenu("&Sync")
+        self._action_sync_now = QAction("Sync &Now", self)
+        self._action_sync_now.setShortcut("Ctrl+Shift+S")
+        self._action_sync_now.triggered.connect(self._on_sync)
+        sync_menu.addAction(self._action_sync_now)
+        sync_menu.addSeparator()
+        self._action_sync_signin = QAction("Sign &In...", self)
+        self._action_sync_signin.triggered.connect(self._on_sync_login)
+        sync_menu.addAction(self._action_sync_signin)
+        self._action_sync_signout = QAction("Sign &Out", self)
+        self._action_sync_signout.triggered.connect(self._on_sync_logout)
+        sync_menu.addAction(self._action_sync_signout)
+
         # -€-€ Settings ...top-level toolbar button in the menu bar  -€-€-€-€-€-€
         menu_bar.addAction(self._action_settings)
     def _build_toolbar(self) -> None:
@@ -1286,6 +1592,8 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self._action_new)
         toolbar.addAction(self._action_save)
         toolbar.addAction(self._action_delete)
+        toolbar.addSeparator()
+        toolbar.addAction(self._action_sync_now)
         toolbar.addSeparator()
         toolbar.addAction(self._action_settings)
         self._main_toolbar = toolbar
@@ -1364,6 +1672,9 @@ class MainWindow(QMainWindow):
             line.setFrameShape(QFrame.Shape.VLine)
             line.setFrameShadow(QFrame.Shadow.Sunken)
             return line
+        self._status_sync_label = QLabel("⬤ Not synced")
+        bar.addPermanentWidget(self._status_sync_label)
+        bar.addPermanentWidget(_sep())
         bar.addPermanentWidget(self._status_note_label)
         bar.addPermanentWidget(_sep())
         bar.addPermanentWidget(self._status_lock_label)
@@ -1609,6 +1920,126 @@ class MainWindow(QMainWindow):
     def auto_close_encrypted_note(self) -> None:
         """Public fa莽ade for idle timeout ...also used by AppController.  [B-102]"""
         self._on_idle_timeout()
+
+    # ------------------------------------------------------------------
+    # Sync  [BL B-89, B-90]
+    # ------------------------------------------------------------------
+
+    def _on_sync(self) -> None:
+        """Toolbar / Sync Now: push+pull cycle.  Opens sign-in dialog when needed."""
+        if not self._sync_url:
+            QMessageBox.information(
+                self,
+                "Sync not configured",
+                "Configure a sync server URL in Settings first.",
+            )
+            return
+        if self._sync_worker is not None and self._sync_worker.isRunning():
+            return  # already in flight
+
+        data_dir = self._data_dir or Path(".")
+        token_data = load_cached_token(data_dir)
+        if token_data is None:
+            dlg = SyncLoginDialog(
+                sync_client=SyncClient(base_url=self._sync_url),
+                data_dir=data_dir,
+                parent=self,
+            )
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return
+            token_data = load_cached_token(data_dir)
+            if token_data is None:
+                return
+
+        client = SyncClient(base_url=self._sync_url)
+        worker = SyncWorker(
+            client=client,
+            token=token_data["access_token"],
+            account_id=token_data["account_id"],
+            store=self._store,
+            direction="both",
+        )
+        worker.progress.connect(self._on_sync_progress)
+        worker.finished_ok.connect(self._on_sync_finished)
+        worker.failed.connect(self._on_sync_failed)
+        worker.conflict_detected.connect(self._on_conflict_detected)
+        self._sync_worker = worker
+        self._status_sync_label.setText("⬤ Syncing…")
+        worker.start()
+
+    def _on_sync_login(self) -> None:
+        """Sign In... menu item: open login dialog without triggering sync."""
+        if not self._sync_url:
+            QMessageBox.information(
+                self,
+                "Sync not configured",
+                "Configure a sync server URL in Settings first.",
+            )
+            return
+        data_dir = self._data_dir or Path(".")
+        dlg = SyncLoginDialog(
+            sync_client=SyncClient(base_url=self._sync_url),
+            data_dir=data_dir,
+            parent=self,
+        )
+        dlg.exec()
+
+    def _on_sync_logout(self) -> None:
+        """Sign Out menu item: clear cached token and update status."""
+        data_dir = self._data_dir or Path(".")
+        delete_cached_token(data_dir)
+        self._status_sync_label.setText("⬤ Not synced")
+
+    def _on_sync_progress(self, msg: str) -> None:
+        self.statusBar().showMessage(msg, 0)
+
+    def _on_sync_finished(self, summary: dict) -> None:  # noqa: ARG002
+        self._status_sync_label.setText("⬤ Synced")
+        self.statusBar().clearMessage()
+        self.populate_note_list()
+        if self._sync_worker is not None:
+            self._sync_worker.deleteLater()
+            self._sync_worker = None
+
+    def _on_sync_failed(self, err_class: str, msg: str) -> None:
+        self._status_sync_label.setText("⬤ Sync failed")
+        self.statusBar().clearMessage()
+        QMessageBox.warning(self, f"Sync failed ({err_class})", msg)
+        if self._sync_worker is not None:
+            self._sync_worker.deleteLater()
+            self._sync_worker = None
+
+    def _on_conflict_detected(self, conflicts: list) -> None:
+        """Open a MergeWindow for each conflicting note, sequentially."""
+        for item in conflicts:
+            local_note = item.get("local") or {}
+            remote_note = item.get("remote") or {}
+            dlg = MergeWindow(local_note=local_note, remote_note=remote_note, parent=self)
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                self._on_merge_accepted(item, dlg.resolved_content())
+
+    def _on_merge_accepted(self, conflict_item: dict, content: str) -> None:
+        from datetime import datetime, timezone
+        note_id = conflict_item.get("note_id") or ""
+        remote = conflict_item.get("remote") or {}
+        now = datetime.now(timezone.utc).isoformat()
+        remote_modified_at = remote.get("modified_at") or now
+        data_dir = self._data_dir or Path(".")
+        token_data = load_cached_token(data_dir)
+        account_id = (token_data or {}).get("account_id") or ""
+        self._store.upsert_remote(
+            note_id=note_id,
+            account_id=account_id,
+            title=remote.get("title") or "",
+            content=content,
+            is_encrypted=bool(remote.get("is_encrypted")),
+            blob=remote.get("blob"),
+            created_at=remote.get("created_at") or remote_modified_at,
+            modified_at=now,
+            synced_at=remote_modified_at,
+        )
+        self.populate_note_list()
+
     # ------------------------------------------------------------------
     # CRUD operations  [BL B-85]
     # ------------------------------------------------------------------

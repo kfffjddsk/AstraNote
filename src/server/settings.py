@@ -67,6 +67,10 @@ class ServerSettings:
     rate_limit_per_minute: int = 60
     db_pool_size: int = 10
     db_max_overflow: int = 20
+    # Sprint 5B: Google OAuth PKCE  [BL B-87]
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_token_url: str = "https://oauth2.googleapis.com/token"
 
     def __post_init__(self) -> None:
         # Always store a resolved Path so downstream code never has to guess.
@@ -155,6 +159,9 @@ class ServerSettings:
             )
             db_max_overflow = 20
 
+        google_client_id = os.environ.get("ASTRANOTES_GOOGLE_CLIENT_ID", "")
+        google_client_secret = os.environ.get("ASTRANOTES_GOOGLE_CLIENT_SECRET", "")
+
         return cls(
             database_url=database_url,
             jwt_secret=secret,
@@ -165,4 +172,6 @@ class ServerSettings:
             rate_limit_per_minute=rate_limit_per_minute,
             db_pool_size=db_pool_size,
             db_max_overflow=db_max_overflow,
+            google_client_id=google_client_id,
+            google_client_secret=google_client_secret,
         )

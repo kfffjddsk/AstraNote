@@ -185,13 +185,13 @@ Items ordered by priority. Status reflects current state.
 
 ---
 
-## Sprint 5B — Desktop Sync UI + OAuth *(Planned)*
+## Sprint 5B — Desktop Sync UI + OAuth ✅ Done
 
-> **Goal:** Sync-enabled PySide6 client with Google OAuth login (ADR-12). See [Sprint 5 Plan](sprint-zero-plan.md).
+> **Goal:** Sync-enabled PySide6 client with Google OAuth login (ADR-12). Completed 2026-06-05 — 669 tests passing.
 
-| ID | Description | US | Priority |
-|----|-------------|----|----------|
-| B-87 | OAuth 2.0 / Google OIDC integration (authlib) — provider callback, JWT issuance `[LOG 05-04]` | US-11, US-14 | High |
-| B-89 | PySide6 sync-enabled desktop client — login dialog (Google OAuth PKCE + local login), sync button `[LOG 05-04]` | US-14 | High |
-| B-90 | CLI `sync push` / `sync pull` + GUI sync button; updates `synced_at` on success `[LOG 05-04]` *(CLI half ✅ done in 5A.1; GUI sync button still pending in 5B)* | US-14 | Medium |
-| ~~B-91~~ | ~~Offline resilience — write queue + local web server~~ — **DROPPED** (superseded by Layer 1 SQLite always-on) `[LOG 05-04]` | — | — |
+| ID | Description | US | Priority | Status |
+|----|-------------|----|----------|--------|
+| B-87 | OAuth 2.0 / Google OIDC integration — `POST /auth/callback` PKCE endpoint, `get_or_create_oauth_account`, `callback_exchange()` in SyncClient `[LOG 05-04]` | US-11, US-14 | High | ✅ Done |
+| B-89 | PySide6 sync-enabled desktop client — `SyncLoginDialog` (Google PKCE + local login tabs), sync toolbar button, Sync menu, `_status_sync_label` `[LOG 05-04]` | US-14 | High | ✅ Done |
+| B-90 | GUI sync button wired to `SyncWorker` + `MergeWindow`; `_on_sync`, `_on_conflict_detected`, `_on_merge_accepted` in `MainWindow`; `Note.synced_at` field added `[LOG 05-04]` *(CLI half ✅ done in 5A.1)* | US-14 | Medium | ✅ Done |
+| ~~B-91~~ | ~~Offline resilience — write queue + local web server~~ — **DROPPED** (superseded by Layer 1 SQLite always-on) `[LOG 05-04]` | — | — | Dropped |

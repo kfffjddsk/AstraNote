@@ -152,7 +152,8 @@ class Note:
     created_at: str           # ISO-8601 UTC
     modified_at: str          # ISO-8601 UTC
     encrypted: bool
-    blob: Optional[bytes] = None  # AES-256-GCM ciphertext; None for unencrypted
+    blob: Optional[bytes] = None       # AES-256-GCM ciphertext; None for unencrypted
+    synced_at: Optional[str] = None    # last server sync stamp; None = never synced
 
     # ------------------------------------------------------------------
     # Factory
@@ -862,6 +863,7 @@ def _row_to_note(row: _NoteRow, *, listing_mode: bool = False) -> Note:
             modified_at=row.modified_at,
             encrypted=True,
             blob=row.encrypted_blob,
+            synced_at=row.synced_at,
         )
     return Note(
         id=row.note_id,
@@ -871,4 +873,5 @@ def _row_to_note(row: _NoteRow, *, listing_mode: bool = False) -> Note:
         modified_at=row.modified_at,
         encrypted=False,
         blob=None,
+        synced_at=row.synced_at,
     )

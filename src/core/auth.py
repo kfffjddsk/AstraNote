@@ -49,6 +49,23 @@ logger = logging.getLogger(__name__)
 _USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,32}\Z")
 
 
+def _email_to_username(email: str) -> str:
+    """Derive a valid AstraNotes username from an email address.
+
+    Strips the domain, replaces non-alphanumeric/underscore characters with
+    ``_``, trims leading/trailing underscores, and enforces the 3–32 char
+    length constraint.  Used by :meth:`AccountStore.get_or_create_oauth_account`.
+    """
+    local = email.split("@")[0] if "@" in email else email
+    safe = re.sub(r"[^a-zA-Z0-9_]", "_", local)
+    safe = safe.strip("_")[:32]
+    if not safe:
+        safe = "oauth_user"
+    if len(safe) < 3:
+        safe = f"u_{safe}"
+    return safe[:32]
+
+
 def validate_username(username: str) -> None:
     """Raise :class:`ValueError` if *username* fails validation rules.
 
@@ -197,6 +214,44 @@ class AccountStore:
                 raise ValueError(f"Username {username!r} is already taken.")
 
         return account_id
+
+    # ------------------------------------------------------------------
+    # OAuth account upsert  [BL B-87]
+    # ------------------------------------------------------------------
+
+    def get_or_create_oauth_account(self, email: str, oauth_sub: str) -> dict:
+        """Return or create an account for a Google OAuth user.
+
+        Uses the email's local part (sanitised) as the username.  OAuth
+        accounts are registered with a random unguessable password — they
+        can only be authenticated via the OAuth callback, never via the
+        normal ``authenticate()`` path.
+
+        Args:
+            email: The user's verified email from Google's id_token.
+            oauth_sub: The Google ``sub`` claim (stable user identifier).
+
+        Returns:
+            Account dict with at least ``account_id`` and ``username``.
+        """
+        import secrets as _secrets
+
+        username = _email_to_username(email)
+
+        existing = self.get_by_username(username)
+        if existing:
+            return existing
+
+        # Username derived from email may collide with an unrelated local
+        # account.  Append the first 6 chars of the Google sub to disambiguate.
+        try:
+            account_id = self.register(username, _secrets.token_urlsafe(32))
+        except ValueError:
+            # Username taken — append sub suffix and retry once.
+            username = f"{username[:25]}_{oauth_sub[:6]}"
+            account_id = self.register(username, _secrets.token_urlsafe(32))
+
+        return {"account_id": account_id, "username": username}
 
     # ------------------------------------------------------------------
     # Lookup  [REQ R13.6]
