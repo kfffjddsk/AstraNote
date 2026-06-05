@@ -195,3 +195,15 @@ Items ordered by priority. Status reflects current state.
 | B-89 | PySide6 sync-enabled desktop client — `SyncLoginDialog` (Google PKCE + local login tabs), sync toolbar button, Sync menu, `_status_sync_label` `[LOG 05-04]` | US-14 | High | ✅ Done |
 | B-90 | GUI sync button wired to `SyncWorker` + `MergeWindow`; `_on_sync`, `_on_conflict_detected`, `_on_merge_accepted` in `MainWindow`; `Note.synced_at` field added `[LOG 05-04]` *(CLI half ✅ done in 5A.1)* | US-14 | Medium | ✅ Done |
 | ~~B-91~~ | ~~Offline resilience — write queue + local web server~~ — **DROPPED** (superseded by Layer 1 SQLite always-on) `[LOG 05-04]` | — | — | Dropped |
+
+---
+
+## Tech Debt — Done ✅ (2026-06-05)
+
+| ID | Item | Resolved in | Notes |
+|----|------|-------------|-------|
+| TD-01 | `authlib.jose` → `joserfc` migration in `src/server/security.py` | 2026-06-05 | `DeprecationWarning` on every import eliminated; `OctKey` + `joserfc.jwt` API; no behaviour change; all existing tests pass. |
+| TD-02 | `sync_auto_interval` config key was read from disk but never wired to a `QTimer` | 2026-06-05 | Added `sync_auto_interval` param to `MainWindow.__init__`; `start_auto_sync_timer()` method creates a `QTimer` firing `_on_sync()` every N minutes; `AppController` reads `sync_auto_interval` from config and calls `start_auto_sync_timer()` on startup; timer is stopped on sign-out. |
+| TD-03 | In-process rate limiter resets on restart; broken in multi-worker deployments | 2026-06-05 | Added `RedisRateLimiter` (Redis sorted-set sliding window) and `make_rate_limiter()` factory to `src/server/rate_limit.py`. When `ASTRANOTES_REDIS_URL` is set and `redis` package is installed, Redis backend is used; otherwise falls back gracefully to in-process. `settings.redis_url` field added. |
+| TD-04 | Server-side `server_notes` table had no Alembic migrations (used `create_all()` only) | 2026-06-05 | Created `alembic_server/` with `env.py` (targets `src.server.models.Base`), `script.py.mako`, and initial migration `0001_server_notes_initial`. Run with `alembic -c alembic_server.ini upgrade head`. Controlled by `ASTRANOTES_SERVER_DB_URL` env var. |
+| TD-05 | No desktop path for account registration (must use CLI) | 2026-06-05 | Design document created at `Copilot/Plans/gui-account-registration.md`. Implementation deferred — see document for proposed "Register" tab in `SyncLoginDialog` and Settings → Sync panel. |

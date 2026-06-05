@@ -1488,6 +1488,7 @@ class MainWindow(QMainWindow):
         data_dir: Optional[Path] = None,
         parent: Optional[QWidget] = None,
         sync_url: str = "",
+        sync_auto_interval: int = 0,
     ) -> None:
         super().__init__(parent)
         self._store = store
@@ -1495,10 +1496,12 @@ class MainWindow(QMainWindow):
         self._registry = registry
         self._data_dir = data_dir  # optional, for account-aware list [B-108]
         self._sync_url = sync_url
+        self._sync_auto_interval = sync_auto_interval
         # State
         self._current_note: Optional[Note] = None
         self._cached_passphrase: Optional[str] = None
         self._sync_worker: Optional[SyncWorker] = None
+        self._auto_sync_timer: Optional[QTimer] = None
         self.setWindowTitle("AstraNotes")
         self.resize(1100, 680)
         self._build_menu_bar()
@@ -1908,6 +1911,16 @@ class MainWindow(QMainWindow):
     def start_idle_timer(self) -> None:
         """Start the 5-minute idle auto-lock timer."""
         self._idle_timer.start()
+
+    def start_auto_sync_timer(self) -> None:
+        """Start the periodic auto-sync timer.  No-op when interval=0 or sync URL unset."""
+        if self._sync_auto_interval <= 0 or not self._sync_url:
+            return
+        self._auto_sync_timer = QTimer(self)
+        self._auto_sync_timer.setInterval(self._sync_auto_interval * 60 * 1000)
+        self._auto_sync_timer.timeout.connect(self._on_sync)
+        self._auto_sync_timer.start()
+
     def reset_idle_timer(self) -> None:
         """Reset the idle timer on any user interaction."""
         self._idle_timer.start()
@@ -1988,6 +2001,8 @@ class MainWindow(QMainWindow):
         """Sign Out menu item: clear cached token and update status."""
         data_dir = self._data_dir or Path(".")
         delete_cached_token(data_dir)
+        if self._auto_sync_timer is not None:
+            self._auto_sync_timer.stop()
         self._status_sync_label.setText("⬤ Not synced")
 
     def _on_sync_progress(self, msg: str) -> None:

@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from src.server.models import ServerNoteRow
-from src.server.rate_limit import AccountRateLimiter, RateLimitExceeded
+from src.server.rate_limit import RateLimitExceeded
 from src.server.schemas import (
     NotePayload,
     PullResponse,

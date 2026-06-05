@@ -68,3 +68,78 @@ Previous baseline: 631 tests (Sprint 5A.2).
 
 - `authlib.jose` deprecation warning (should migrate to `joserfc` before 2.0). Logged as a follow-up.
 - `Note.synced_at` field addition is a minor model expansion that is backward-compatible (default `None`). All 631 prior tests continue to pass.
+
+---
+
+## Tech Debt Resolution — 2026-06-05 (same session, continuation)
+
+### What Was Fixed
+
+| TD | Item | Files Changed |
+|----|------|--------------|
+| TD-01 | `authlib.jose` → `joserfc` | `src/server/security.py` |
+| TD-02 | Auto-sync interval not wired | `src/desktop/main_window.py`, `src/desktop/app_controller.py` |
+| TD-03 | Rate limiter in-process only | `src/server/rate_limit.py`, `src/server/settings.py`, `src/server/app.py`, `src/server/routers/sync.py` |
+| TD-04 | Server Alembic migrations missing | `alembic_server.ini`, `alembic_server/env.py`, `alembic_server/script.py.mako`, `alembic_server/versions/0001_server_notes_initial.py` |
+| TD-05 | No desktop account registration | `Copilot/Plans/gui-account-registration.md` (design doc only) |
+
+### TD-01 Detail: authlib → joserfc
+
+Replaced the `warnings.catch_warnings()` suppression block and all `authlib.jose` imports with `joserfc`:
+
+- `from joserfc import jwt as _jwt`
+- `from joserfc.jwk import OctKey`
+- `from joserfc.errors import BadSignatureError, DecodeError, ExpiredTokenError, JoseError`
+
+`issue_token`: creates `OctKey.import_key(settings.jwt_secret.encode())`, calls `_jwt.encode(header, payload, key)` → returns `str` directly (no `bytes.decode()` needed).
+
+`verify_token`: `_jwt.decode(token, key)` → `Token`; `token.validate()` → raises `ExpiredTokenError` on stale; `token.claims` → `dict` for claim extraction.
+
+Exception hierarchy unchanged; all existing token tests pass.
+
+### TD-02 Detail: Auto-sync interval
+
+- `MainWindow.__init__` gains `sync_auto_interval: int = 0` param; stored as `self._sync_auto_interval`.
+- New `start_auto_sync_timer()` method: creates `QTimer` firing `_on_sync()` every `interval * 60 * 1000` ms when `interval > 0` and `sync_url` is set.
+- `_on_sync_logout()` stops the timer.
+- `AppController.run()` reads `sync_auto_interval` from `ConfigStore`, passes to `MainWindow`, calls `window.start_auto_sync_timer()` after `start_idle_timer()`.
+- No changes to `config.py` — the key was already there with default `0` and non-negative validation.
+
+### TD-03 Detail: Redis rate limiter
+
+Added to `src/server/rate_limit.py`:
+
+- `_REDIS_AVAILABLE` flag (conditional `import redis`).
+- `RedisRateLimiter`: sorted-set per account (`astranotes:rl:<account_id>`); prune → count → reject or zadd in two pipelined round-trips; sets key TTL for automatic cleanup.
+- `make_rate_limiter(per_minute, redis_url)` factory: tries Redis (with PING probe), falls back to `AccountRateLimiter` on any failure and logs a warning.
+
+`ServerSettings` gains `redis_url: str = ""` field (env var `ASTRANOTES_REDIS_URL`).
+
+`app.py` changed from `AccountRateLimiter(settings.rate_limit_per_minute)` → `make_rate_limiter(settings.rate_limit_per_minute, settings.redis_url)`.
+
+`sync.py` router import cleaned up (no longer imports `AccountRateLimiter` by name).
+
+### TD-04 Detail: Server Alembic migrations
+
+`alembic_server/` mirrors the client-side `alembic/` structure but targets `src.server.models.Base`:
+
+- `alembic_server.ini` — separate ini file; `ASTRANOTES_SERVER_DB_URL` overrides the URL.
+- `alembic_server/env.py` — standard online/offline setup with `render_as_batch=True` for SQLite ALTER support.
+- `alembic_server/versions/0001_server_notes_initial.py` — creates `server_notes` table and both indexes; has a working `downgrade()`.
+
+The server's `init_db(create_all=True)` path is kept intact for development/testing. Alembic is for production PostgreSQL deployments.
+
+### TD-05 Detail: GUI design doc
+
+`Copilot/Plans/gui-account-registration.md` documents:
+- Proposed "Create account" third tab in `SyncLoginDialog`.
+- Username chip with dropdown in the status bar.
+- Dedicated Sync page in `SettingsDialog`.
+- Full dialog flow diagram.
+- Open design questions for user review.
+
+Implementation not started — document created for redesign discussion.
+
+### Test Results
+
+All tests still passing after TD-01 through TD-04 changes.

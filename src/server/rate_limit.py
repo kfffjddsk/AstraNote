@@ -1,27 +1,37 @@
-"""In-process sliding-window rate limiter keyed on ``account_id``.
+"""Sliding-window rate limiter keyed on ``account_id``.
 
-Sprint 5A.2 deliberately ships a tiny stdlib-only limiter rather than
-adding ``slowapi`` / Redis to the dependency tree:
+Two backends are available:
 
-* zero new third-party dependencies (B-95 mandate),
-* deterministic, monkeypatch-friendly tests (no clock skew with Redis),
-* fits the existing ``RateLimitError`` pattern from ``src.core.auth``.
+* **In-process** (``AccountRateLimiter``) — stdlib-only, zero dependencies,
+  deterministic for tests.  Resets on process restart; not suitable for
+  multi-worker deployments where each worker maintains its own counter.
+* **Redis-backed** (``RedisRateLimiter``) — requires the ``redis`` package and
+  ``ASTRANOTES_REDIS_URL`` env var.  Stores a sorted set per account so the
+  window is shared across all worker processes.
 
-The implementation keeps one ``deque`` of unix-timestamp floats per
-account, prunes entries older than 60 seconds on every check, and raises
-``RateLimitExceeded`` once the window is full.  All mutations happen
-inside a single ``threading.Lock`` so concurrent FastAPI worker threads
-cannot tear the deque.
+Use ``make_rate_limiter(per_minute, redis_url)`` to get the right
+implementation at startup.  The Redis path falls back gracefully to the
+in-process limiter when ``redis`` is not installed or the connection fails.
 
 Refs: [BL B-95] [REQ R16.7]
 """
 from __future__ import annotations
 
 import collections
+import logging
 import math
 import threading
 import time
-from typing import Deque, Dict
+from typing import Deque, Dict, Union
+
+logger = logging.getLogger(__name__)
+
+try:
+    import redis as _redis_mod
+
+    _REDIS_AVAILABLE = True
+except ImportError:
+    _REDIS_AVAILABLE = False
 
 
 class RateLimitExceeded(Exception):
@@ -71,3 +81,84 @@ class AccountRateLimiter:
                 raise RateLimitExceeded(retry)
 
             bucket.append(now)
+
+
+class RedisRateLimiter:
+    """Sliding-window rate limiter backed by a Redis sorted set.
+
+    Each account gets a key ``astranotes:rl:<account_id>`` whose members are
+    request timestamps.  Because the set lives in Redis, the window is shared
+    across all worker processes — correct under multi-worker deployments.
+
+    Requires the ``redis`` package (``pip install redis``) and a reachable
+    Redis server.
+
+    Refs: [BL B-95] [REQ R16.7]
+    """
+
+    _WINDOW = 60  # seconds
+
+    def __init__(self, redis_url: str, per_minute: int) -> None:
+        if per_minute < 1:
+            raise ValueError("per_minute must be >= 1")
+        if not _REDIS_AVAILABLE:
+            raise RuntimeError(
+                "redis package is not installed; "
+                "run 'pip install redis' to enable the Redis rate limiter"
+            )
+        self.per_minute = per_minute
+        self._client = _redis_mod.from_url(redis_url, decode_responses=False)
+
+    def check(self, account_id: str) -> None:
+        """Record a call for *account_id* or raise :class:`RateLimitExceeded`.
+
+        Two round-trips to Redis:
+        1. Atomic prune+count (pipeline).
+        2. Conditional zadd + expire only when the limit is not exceeded.
+        """
+        now = time.time()
+        cutoff = now - self._WINDOW
+        key = f"astranotes:rl:{account_id}"
+
+        pipe = self._client.pipeline(transaction=True)
+        pipe.zremrangebyscore(key, "-inf", cutoff)
+        pipe.zcard(key)
+        _, count = pipe.execute()
+
+        if count >= self.per_minute:
+            oldest_raw = self._client.zrange(key, 0, 0, withscores=True)
+            if oldest_raw:
+                oldest_ts = oldest_raw[0][1]
+                retry = max(1, math.ceil(self._WINDOW - (now - oldest_ts)))
+            else:
+                retry = 1
+            raise RateLimitExceeded(retry)
+
+        pipe = self._client.pipeline(transaction=True)
+        pipe.zadd(key, {str(now): now})
+        pipe.expire(key, self._WINDOW + 10)
+        pipe.execute()
+
+
+def make_rate_limiter(
+    per_minute: int, redis_url: str = ""
+) -> "Union[AccountRateLimiter, RedisRateLimiter]":
+    """Return the best available rate limiter.
+
+    Uses :class:`RedisRateLimiter` when *redis_url* is non-empty **and** the
+    ``redis`` package is installed **and** a ``PING`` to the server succeeds.
+    Falls back to :class:`AccountRateLimiter` (in-process) otherwise.
+    """
+    if redis_url and _REDIS_AVAILABLE:
+        try:
+            limiter = RedisRateLimiter(redis_url, per_minute)
+            limiter._client.ping()
+            logger.info("Rate limiter: Redis backend at %s", redis_url)
+            return limiter
+        except Exception as exc:
+            logger.warning(
+                "Redis rate limiter unavailable (%s); "
+                "falling back to in-process limiter.",
+                exc,
+            )
+    return AccountRateLimiter(per_minute)

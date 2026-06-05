@@ -1,34 +1,23 @@
 """JWT issuance and verification for the sync server.
 
-Uses ``authlib.jose`` for HS256 sign / verify.  authlib emits a
-``DeprecationWarning`` because the project plans to migrate to
-``joserfc``; we keep the (still functional) authlib path until that
-upgrade lands.  The deprecation warning is suppressed at module import
-time so it does not pollute the application logs.
+Uses ``joserfc`` for HS256 sign / verify.
 
 Refs: [BL B-88, B-94] [REQ R16.4, R16.5]
 """
 from __future__ import annotations
 
 import logging
-import warnings
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import Depends, HTTPException, Request, status
+from joserfc import jwt as _jwt
+from joserfc.errors import BadSignatureError, DecodeError, ExpiredTokenError, JoseError
+from joserfc.jwk import OctKey
+from joserfc.jwt import JWTClaimsRegistry as _ClaimsRegistry
 
-# authlib raises an ``AuthlibDeprecationWarning`` on every import of
-# ``authlib.jose``.  Silencing it here keeps test logs clean.
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
-    from authlib.jose import jwt
-    from authlib.jose.errors import (
-        BadSignatureError,
-        DecodeError,
-        ExpiredTokenError,
-        JoseError,
-    )
+_CLAIMS_REGISTRY = _ClaimsRegistry(exp={"essential": True})
 
 from src.server.settings import ServerSettings
 
@@ -97,10 +86,8 @@ def issue_token(
         "iat": int(now.timestamp()),
         "exp": int(expires_at.timestamp()),
     }
-    token_bytes = jwt.encode(header, payload, settings.jwt_secret)
-    token = (
-        token_bytes.decode("ascii") if isinstance(token_bytes, bytes) else token_bytes
-    )
+    key = OctKey.import_key(settings.jwt_secret.encode())
+    token = _jwt.encode(header, payload, key)
     return token, expires_at
 
 
@@ -111,9 +98,10 @@ def verify_token(settings: ServerSettings, token: str) -> AccountClaims:
     :class:`TokenInvalid` for any other failure (bad signature, malformed,
     missing claim).
     """
+    key = OctKey.import_key(settings.jwt_secret.encode())
     try:
-        claims = jwt.decode(token, settings.jwt_secret)
-        claims.validate()
+        result = _jwt.decode(token, key)
+        _CLAIMS_REGISTRY.validate(result.claims)
     except ExpiredTokenError as exc:
         raise TokenExpired("token has expired") from exc
     except (BadSignatureError, DecodeError) as exc:
@@ -121,6 +109,7 @@ def verify_token(settings: ServerSettings, token: str) -> AccountClaims:
     except JoseError as exc:
         raise TokenInvalid(f"invalid token: {exc}") from exc
 
+    claims = result.claims
     sub = claims.get("sub")
     username = claims.get("username")
     iat = claims.get("iat")

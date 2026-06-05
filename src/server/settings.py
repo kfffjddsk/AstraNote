@@ -71,6 +71,8 @@ class ServerSettings:
     google_client_id: str = ""
     google_client_secret: str = ""
     google_token_url: str = "https://oauth2.googleapis.com/token"
+    # Optional Redis URL for cross-process rate limiting.  Empty string = in-process.
+    redis_url: str = ""
 
     def __post_init__(self) -> None:
         # Always store a resolved Path so downstream code never has to guess.
@@ -161,6 +163,7 @@ class ServerSettings:
 
         google_client_id = os.environ.get("ASTRANOTES_GOOGLE_CLIENT_ID", "")
         google_client_secret = os.environ.get("ASTRANOTES_GOOGLE_CLIENT_SECRET", "")
+        redis_url = os.environ.get("ASTRANOTES_REDIS_URL", "")
 
         return cls(
             database_url=database_url,
@@ -174,4 +177,5 @@ class ServerSettings:
             db_max_overflow=db_max_overflow,
             google_client_id=google_client_id,
             google_client_secret=google_client_secret,
+            redis_url=redis_url,
         )

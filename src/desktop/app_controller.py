@@ -102,18 +102,24 @@ class AppController:
             font_family = self.config.get("font_family") or ""
             accent = self.config.get("accent_color") or "purple"
             apply_theme(app, theme, font_size, font_family, accent)
+            try:
+                auto_interval = int(self.config.get("sync_auto_interval") or 0)
+            except (TypeError, ValueError):
+                auto_interval = 0
             window = MainWindow(
                 store=self.store,
                 config=self.config,
                 registry=self.registry,
                 data_dir=data_dir,
                 sync_url=self.config.get("sync_server_url") or "",
+                sync_auto_interval=auto_interval,
             )
             window.show()
 
-            # ── Step 7: Populate note list and start idle timer ──────
+            # ── Step 7: Populate note list and start timers ──────────
             window.populate_note_list()
             window.start_idle_timer()
+            window.start_auto_sync_timer()
 
             # ── Step 8: Enter event loop ──────────────────────────────
             return app.exec()

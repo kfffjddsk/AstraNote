@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse
 from src.core.auth import AccountStore
 from src.server.db import init_db, make_engine, make_session_factory
 from src.server.middleware import HTTPSEnforcementMiddleware
-from src.server.rate_limit import AccountRateLimiter
+from src.server.rate_limit import make_rate_limiter
 from src.server.routers import auth as auth_router_module
 from src.server.routers import sync as sync_router_module
 from src.server.settings import ServerSettings
@@ -134,7 +134,9 @@ def create_app(settings: Optional[ServerSettings] = None) -> FastAPI:
     app.state.session_factory = session_factory
     app.state.account_store = account_store
     # Sprint 5A.2: one shared rate-limiter per app instance (B-95).
-    app.state.rate_limiter = AccountRateLimiter(settings.rate_limit_per_minute)
+    app.state.rate_limiter = make_rate_limiter(
+        settings.rate_limit_per_minute, settings.redis_url
+    )
 
     # Sprint 5A.2: HTTPS enforcement runs before exception handlers so the
     # plain-HTTP rejection short-circuits long before any router is invoked.
