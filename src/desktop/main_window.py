@@ -69,7 +69,6 @@ from src.core.sync_client import (
     SyncClient,
     delete_cached_token,
     load_cached_token,
-    save_cached_token,
 )
 from src.desktop.merge_window import MergeWindow
 from src.desktop.sync_worker import SyncWorker
@@ -296,10 +295,9 @@ _GOOGLE_SCOPE = "openid email profile"
 class SyncLoginDialog(QDialog):
     """Account dialog — sign in, register, or continue with Google.
 
-    All three tabs work locally (no sync server required).  If a
-    *sync_client* is provided the dialog also attempts to authenticate
-    with the sync server as a best-effort side effect so that the caller
-    can sync immediately after the dialog closes.
+    All three tabs work locally with no sync server required.  The dialog
+    is purely Layer 2 (local account / session).  Layer 3 (sync server JWT)
+    is handled separately inside ``_on_sync()``.
 
     Tabs:
       1. Sign in    — ``AccountStore.authenticate()`` → ``SessionManager.create()``
@@ -314,7 +312,6 @@ class SyncLoginDialog(QDialog):
         self,
         store: "DatabaseStore",
         data_dir: Path,
-        sync_client: Optional["SyncClient"] = None,
         google_client_id: str = "",
         google_client_secret: str = "",
         parent: Optional[QWidget] = None,
@@ -324,7 +321,6 @@ class SyncLoginDialog(QDialog):
         self.setMinimumWidth(400)
         self._store = store
         self._data_dir = data_dir
-        self._sync_client = sync_client
         self._google_client_id = google_client_id
         self._google_client_secret = google_client_secret
         self._oauth_server: Optional[_OAuthCallbackServer] = None
@@ -439,13 +435,6 @@ class SyncLoginDialog(QDialog):
             from src.core.auth import AccountStore, SessionManager
             account = AccountStore(self._data_dir).authenticate(username, password)
             SessionManager.create(self._data_dir, account["account_id"], account["username"])
-            # Best-effort: also get a sync server JWT so sync works immediately.
-            if self._sync_client is not None:
-                try:
-                    resp = self._sync_client.login(username, password)
-                    save_cached_token(self._data_dir, resp)
-                except Exception:
-                    pass  # server not running — sync will inform the user later
             self.accept()
         except Exception as exc:
             self._local_error.setText(str(exc))
@@ -468,14 +457,6 @@ class SyncLoginDialog(QDialog):
             from src.core.auth import AccountStore, SessionManager
             account_id = AccountStore(self._data_dir).register(username, password)
             SessionManager.create(self._data_dir, account_id, username)
-            # Best-effort: also register + login on sync server.
-            if self._sync_client is not None:
-                try:
-                    self._sync_client.register(username, password)
-                    resp = self._sync_client.login(username, password)
-                    save_cached_token(self._data_dir, resp)
-                except Exception:
-                    pass
             self.accept()
         except Exception as exc:
             self._reg_error.setText(str(exc))
@@ -2073,12 +2054,11 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _account_dialog(self) -> "SyncLoginDialog":
-        """Build the account dialog with the current store + optional sync client."""
+        """Build the account dialog for Layer 2 local account management."""
         data_dir = self._data_dir or Path(".")
         return SyncLoginDialog(
             store=self._store,
             data_dir=data_dir,
-            sync_client=SyncClient(base_url=self._sync_url) if self._sync_url else None,
             google_client_id=self._google_client_id,
             google_client_secret=self._google_client_secret,
             parent=self,
