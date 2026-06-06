@@ -52,6 +52,7 @@ from PySide6.QtWidgets import (
     QSystemTrayIcon,
     QTabWidget,
     QTextEdit,
+    QSizePolicy,
     QToolBar,
     QToolButton,
     QTreeWidget,
@@ -697,6 +698,14 @@ class SettingsDialog(QDialog):
         )
         self._close_behavior_combo.setCurrentText(config.get("close_behavior") or "ask")
         form.addRow("When closing window:", self._close_behavior_combo)
+        self._auto_login_check = QCheckBox("Keep me signed in when the app restarts")
+        self._auto_login_check.setChecked((config.get("auto_login") or "no") == "yes")
+        auto_login_holder = QWidget()
+        hl = QHBoxLayout(auto_login_holder)
+        hl.setContentsMargins(0, 0, 0, 0)
+        hl.addWidget(self._auto_login_check)
+        hl.addStretch(1)
+        form.addRow("Auto login:", auto_login_holder)
         self._add_page("Behaviour", page)
     def _build_page_files(self, config: ConfigStore) -> None:
         """Supported Formats panel ...analogous to Notepad++ File Association.
@@ -741,6 +750,7 @@ class SettingsDialog(QDialog):
         self._config.set("accent_color", self._accent_combo.currentText())
         self._config.set("default_encrypt", self._default_encrypt_combo.currentText())
         self._config.set("close_behavior", self._close_behavior_combo.currentText())
+        self._config.set("auto_login", "yes" if self._auto_login_check.isChecked() else "no")
         self.accept()
     @property
     def theme(self) -> str:
@@ -1656,24 +1666,21 @@ class MainWindow(QMainWindow):
         self._action_widget_gallery.triggered.connect(self._on_widget_gallery)
         self.addAction(self._action_widget_gallery)
 
-        # -€-€ Sync  [BL B-89, B-90] -€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€-€
-        sync_menu = menu_bar.addMenu("&Sync")
-        self._action_sync_now = QAction("Sync &Now", self)
+        # Sync + account actions — not in menu bar; Ctrl+Shift+S kept as a
+        # window-level shortcut; sign-in/out live in the toolbar user button.
+        self._action_sync_now = QAction("Sync Now", self)
         self._action_sync_now.setShortcut("Ctrl+Shift+S")
         self._action_sync_now.triggered.connect(self._on_sync)
-        sync_menu.addAction(self._action_sync_now)
-        sync_menu.addSeparator()
-        self._action_sync_signin = QAction("Sign &In...", self)
+        self.addAction(self._action_sync_now)
+        self._action_sync_signin = QAction("Sign In...", self)
         self._action_sync_signin.triggered.connect(self._on_sync_login)
-        sync_menu.addAction(self._action_sync_signin)
-        self._action_sync_signout = QAction("Sign &Out", self)
+        self._action_sync_signout = QAction("Sign Out", self)
         self._action_sync_signout.triggered.connect(self._on_sync_logout)
-        sync_menu.addAction(self._action_sync_signout)
 
         # -€-€ Settings ...top-level toolbar button in the menu bar  -€-€-€-€-€-€
         menu_bar.addAction(self._action_settings)
     def _build_toolbar(self) -> None:
-        """JEDITOR-style top toolbar with QStyle icons.  [B-110 Sprint 4C]"""
+        """Top toolbar — note actions on the left, account controls on the right."""
         toolbar = QToolBar("Main", self)
         toolbar.setMovable(False)
         toolbar.setIconSize(QSize(20, 20))
@@ -1683,9 +1690,25 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self._action_save)
         toolbar.addAction(self._action_delete)
         toolbar.addSeparator()
-        toolbar.addAction(self._action_sync_now)
-        toolbar.addSeparator()
         toolbar.addAction(self._action_settings)
+        # Flexible spacer pushes the account controls to the far right.
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        toolbar.addWidget(spacer)
+        # Sync button — only visible when an account session is active.
+        self._toolbar_sync_btn = QToolButton()
+        self._toolbar_sync_btn.setText("⟳  Sync")
+        self._toolbar_sync_btn.setToolTip("Sync now  (Ctrl+Shift+S)")
+        self._toolbar_sync_btn.clicked.connect(self._on_sync)
+        self._toolbar_sync_btn.setVisible(False)
+        toolbar.addWidget(self._toolbar_sync_btn)
+        # User account button with a dropdown for sign-in / sign-out.
+        self._user_menu = QMenu(self)
+        self._toolbar_user_btn = QToolButton()
+        self._toolbar_user_btn.setText("👤  Guest")
+        self._toolbar_user_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._toolbar_user_btn.setMenu(self._user_menu)
+        toolbar.addWidget(self._toolbar_user_btn)
         self._main_toolbar = toolbar
     def _build_central_widget(self) -> None:
         """VS Code-inspired split layout: sidebar + tab editor.  [B-103, B-104]"""
@@ -1920,17 +1943,36 @@ class MainWindow(QMainWindow):
         self._update_account_label()
 
     def _update_account_label(self) -> None:
-        """Refresh the account indicator in the status bar."""
-        text = "👤 Guest"
+        """Refresh the status-bar account label and the toolbar account controls."""
+        session = None
         if self._data_dir:
             try:
                 from src.core.auth import SessionManager
                 session = SessionManager.load(self._data_dir)
-                if session:
-                    text = f"👤 {session['username']}"
             except Exception:
                 pass
-        self._status_account_label.setText(text)
+
+        if session:
+            username = session["username"]
+            self._status_account_label.setText(f"👤 {username}")
+        else:
+            self._status_account_label.setText("👤 Guest")
+
+        if not hasattr(self, "_user_menu"):
+            return
+        self._user_menu.clear()
+        if session:
+            username = session["username"]
+            header = self._user_menu.addAction(f"Signed in as {username}")
+            header.setEnabled(False)
+            self._user_menu.addSeparator()
+            self._user_menu.addAction(self._action_sync_signout)
+            self._toolbar_sync_btn.setVisible(True)
+            self._toolbar_user_btn.setText(f"👤  {username}")
+        else:
+            self._user_menu.addAction(self._action_sync_signin)
+            self._toolbar_sync_btn.setVisible(False)
+            self._toolbar_user_btn.setText("👤  Guest")
 
     def _current_account_id(self) -> Optional[str]:
         """Return the active session account_id, or None if in guest mode."""

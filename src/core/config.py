@@ -30,6 +30,7 @@ ALLOWED_KEYS: frozenset[str] = frozenset(
     {
         "accent_color",
         "allowed_plugins",
+        "auto_login",
         "close_behavior",
         "data_dir",
         "default_encrypt",
@@ -51,6 +52,7 @@ ALLOWED_KEYS: frozenset[str] = frozenset(
 _TYPE_MAP: dict[str, type] = {
     "accent_color": str,
     "allowed_plugins": list,
+    "auto_login": str,
     "close_behavior": str,
     "data_dir": str,
     "default_encrypt": str,
@@ -71,6 +73,7 @@ _TYPE_MAP: dict[str, type] = {
 DEFAULTS: dict[str, Any] = {
     "accent_color": "purple",
     "allowed_plugins": [],
+    "auto_login": "no",
     "close_behavior": "ask",
     "data_dir": None,
     "default_encrypt": "no",
@@ -90,6 +93,7 @@ DEFAULTS: dict[str, Any] = {
 # Keys with restricted allowed values (enum-style validation).
 _VALUE_CONSTRAINTS: dict[str, frozenset] = {
     "accent_color": frozenset({"purple", "pink", "cyan", "green", "orange"}),
+    "auto_login": frozenset({"yes", "no"}),
     "default_encrypt": frozenset({"yes", "no"}),
     "security_level": frozenset({"high", "session"}),  # B-98 [REQ R9.8]
     "theme": frozenset({"light", "dark"}),

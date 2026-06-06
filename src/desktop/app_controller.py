@@ -73,6 +73,15 @@ class AppController:
         # ── Step 2: Resolve data_dir ───────────────────────────────────
         data_dir = self._resolve_data_dir()
 
+        # ── Step 2.5: Clear session on startup unless auto-login is on ─
+        # Default behaviour is guest mode on every launch.  Users opt in
+        # by enabling "Auto login" in Settings → Behaviour.
+        if (self.config.get("auto_login") or "no") != "yes":
+            from src.core.auth import SessionManager
+            from src.core.sync_client import delete_cached_token
+            SessionManager.delete(data_dir)
+            delete_cached_token(data_dir)
+
         # ── Step 3: Create DatabaseStore ─────────────────────────────
         self.store = DatabaseStore(data_dir)
 
