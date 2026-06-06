@@ -10,5 +10,6 @@ bcrypt
 PySide6
 fastapi
 uvicorn
-authlib
+joserfc
 httpx
+redis

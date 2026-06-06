@@ -14,6 +14,7 @@ Refs: [BL B-84, B-101] [REQ R9.7, R11] [US-9] design §3.1, §4.5, §4.7
 """
 from __future__ import annotations
 
+import os
 import signal
 import sys
 from pathlib import Path
@@ -24,7 +25,10 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from src.core.app_lock import AppLockManager, SessionConflictError
 from src.core.config import ConfigStore
 from src.core.notes import DatabaseStore
+from src.core.paths import platform_data_dir
 from src.core.plugin_base import PluginRegistry
+from src.desktop.bundled_defaults import GOOGLE_CLIENT_ID as _DEFAULT_GID
+from src.desktop.bundled_defaults import GOOGLE_CLIENT_SECRET as _DEFAULT_GSECRET
 from src.desktop.main_window import MainWindow, apply_theme
 
 
@@ -106,6 +110,16 @@ class AppController:
                 auto_interval = int(self.config.get("sync_auto_interval") or 0)
             except (TypeError, ValueError):
                 auto_interval = 0
+            google_client_id = (
+                self.config.get("google_client_id")
+                or os.environ.get("ASTRANOTES_GOOGLE_CLIENT_ID", "")
+                or _DEFAULT_GID
+            )
+            google_client_secret = (
+                self.config.get("google_client_secret")
+                or os.environ.get("ASTRANOTES_GOOGLE_CLIENT_SECRET", "")
+                or _DEFAULT_GSECRET
+            )
             window = MainWindow(
                 store=self.store,
                 config=self.config,
@@ -113,8 +127,8 @@ class AppController:
                 data_dir=data_dir,
                 sync_url=self.config.get("sync_server_url") or "",
                 sync_auto_interval=auto_interval,
-                google_client_id=self.config.get("google_client_id") or "",
-                google_client_secret=self.config.get("google_client_secret") or "",
+                google_client_id=google_client_id,
+                google_client_secret=google_client_secret,
             )
             window.show()
 
@@ -142,5 +156,9 @@ class AppController:
         cfg_val = self.config.get("data_dir") if self.config else None
         if cfg_val:
             return Path(cfg_val)
-        # Fall back to OS default: ~/astranotes
-        return Path.home() / "astranotes"
+        return platform_data_dir()
+
+
+def main() -> None:
+    """Entry point for the ``astranotes-gui`` console script."""
+    sys.exit(AppController().run())

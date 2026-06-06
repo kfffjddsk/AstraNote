@@ -31,10 +31,15 @@ def _make_app() -> "object":
     return create_app(settings)
 
 
-if __name__ == "__main__":  # pragma: no cover - exercised manually
+def server_main() -> None:  # pragma: no cover
+    """Entry point for the ``astranotes-server`` console script."""
     import uvicorn
 
-    app = _make_app()
+    _app = _make_app()
     host = os.environ.get("ASTRANOTES_SYNC_HOST", "127.0.0.1")
     port = int(os.environ.get("ASTRANOTES_SYNC_PORT", "8765"))
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(_app, host=host, port=port)
+
+
+if __name__ == "__main__":  # pragma: no cover
+    server_main()

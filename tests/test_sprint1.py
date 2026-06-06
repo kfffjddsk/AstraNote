@@ -460,14 +460,13 @@ def test_data_dir_must_be_directory(tmp_path: Path) -> None:
 
 
 @pytest.mark.cli
-def test_data_dir_defaults_to_home_astranotes(tmp_path: Path) -> None:
-    """Omitting --data-dir resolves to ~/.astranotes (monkeypatched)."""
-    fake_home = tmp_path / "fake_home"
-    fake_home.mkdir()
+def test_data_dir_defaults_to_platform_data_dir(tmp_path: Path) -> None:
+    """Omitting --data-dir resolves to platform_data_dir() (monkeypatched)."""
+    fake_data_dir = tmp_path / "platform_data"
     runner = CliRunner()
-    with patch("src.cli.Path.home", return_value=fake_home):
+    with patch("src.core.paths.platform_data_dir", return_value=fake_data_dir):
         result = runner.invoke(cli, ["list"])
-    assert (fake_home / ".astranotes").is_dir()
+    assert fake_data_dir.is_dir()
     assert result.exit_code == 0
 
 

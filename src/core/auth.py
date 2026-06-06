@@ -376,7 +376,7 @@ class AccountStore:
 # ---------------------------------------------------------------------------
 
 _SESSION_FILENAME = ".session"
-_SESSION_EXPIRY_HOURS = 24
+_SESSION_EXPIRY_HOURS = 720  # 30 days — appropriate for an installed app
 
 
 class SessionManager:

@@ -198,6 +198,20 @@ Items ordered by priority. Status reflects current state.
 
 ---
 
+## Sprint 5C — Installed-App Packaging ✅ Done (2026-06-06)
+
+> **Goal:** Make AstraNotes behave correctly as a properly installed application — consistent OS-standard data paths, session persistence, package entry points, and build-time credential support.
+
+| ID | Description | US | Priority | Status |
+|----|-------------|----|----------|--------|
+| B-96 | Unified platform data directory (`src/core/paths.py`) — Windows `%APPDATA%\AstraNotes`, macOS `~/Library/Application Support/AstraNotes`, Linux `$XDG_DATA_HOME/AstraNotes`; used by CLI and GUI so both use the same `notes.db` | US-1, US-12 | High | ✅ Done |
+| B-97 | Session expiry increased from 24 h → 30 days in `SessionManager._SESSION_EXPIRY_HOURS` | US-11 | Medium | ✅ Done |
+| B-98 | `pyproject.toml` with entry points: `astranotes` (CLI), `astranotes-gui` (desktop), `astranotes-server` (sync server) | — | Medium | ✅ Done |
+| B-99 | `requirements.txt` cleaned: removed `authlib`, added `joserfc` + `redis` | — | Low | ✅ Done |
+| B-100 | `src/desktop/bundled_defaults.py` — build-time patchable Google OAuth credentials with env-var + config fallback chain | US-11 | Medium | ✅ Done |
+
+---
+
 ## Tech Debt — Done ✅ (2026-06-05)
 
 | ID | Item | Resolved in | Notes |

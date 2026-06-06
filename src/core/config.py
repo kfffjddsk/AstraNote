@@ -1,8 +1,9 @@
 """Configuration module for AstraNotes.
 
 Settings stored at the OS-standard path:
-  Windows : ``%APPDATA%\\astranotes\\config.json``
-  POSIX   : ``~/.config/astranotes/config.json``
+  Windows : ``%APPDATA%\\AstraNotes\\config.json``
+  macOS   : ``~/Library/Application Support/AstraNotes/config.json``
+  Linux   : ``$XDG_CONFIG_HOME/AstraNotes/config.json``
 
 Config is separate from ``data_dir``; moving ``--data-dir`` does not move
 the config file.  ``DATABASE_URL`` is never stored here — accepted from
@@ -14,10 +15,10 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import platform
 from pathlib import Path
 from typing import Any, Optional
+
+from src.core.paths import platform_config_dir
 
 logger = logging.getLogger(__name__)
 
@@ -98,12 +99,7 @@ _VALUE_CONSTRAINTS: dict[str, frozenset] = {
 
 def _default_config_path() -> Path:
     """Return the OS-standard config file path.  [REQ R9.1] [D-06]"""
-    if platform.system() == "Windows":
-        appdata = os.environ.get("APPDATA") or str(
-            Path.home() / "AppData" / "Roaming"
-        )
-        return Path(appdata) / "astranotes" / "config.json"
-    return Path.home() / ".config" / "astranotes" / "config.json"
+    return platform_config_dir() / "config.json"
 
 
 class ConfigStore:

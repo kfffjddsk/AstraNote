@@ -574,16 +574,16 @@ class TestAppControllerStartup:
         controller.config.get.return_value = "/some/other/path"
         assert controller._resolve_data_dir() == override
 
-    def test_resolve_data_dir_fallback_to_home(self, tmp_path):
-        """§5.4  When config has no data_dir set, falls back to ~/astranotes."""
+    def test_resolve_data_dir_fallback_to_platform_data_dir(self, tmp_path):
+        """§5.4  When config has no data_dir set, falls back to platform_data_dir()."""
         from src.desktop.app_controller import AppController
-        from pathlib import Path
+        from src.core.paths import platform_data_dir
 
         controller = AppController(config_path=tmp_path / "config.json")
         controller.config = MagicMock()
         controller.config.get.return_value = None
         resolved = controller._resolve_data_dir()
-        assert resolved == Path.home() / "astranotes"
+        assert resolved == platform_data_dir()
 
     def test_run_returns_1_on_session_conflict(self, tmp_path):
         """§5.5  run() returns exit code 1 when SessionConflictError raised."""

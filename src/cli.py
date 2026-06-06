@@ -143,7 +143,11 @@ def _validate_data_dir(
     value: Optional[str],
 ) -> Path:
     """Resolve the data directory, create it if necessary, and verify write access."""
-    resolved = Path(value).resolve() if value else Path.home() / ".astranotes"
+    if value:
+        resolved = Path(value).resolve()
+    else:
+        from src.core.paths import platform_data_dir
+        resolved = platform_data_dir()
 
     # Attempt to create the directory (parents allowed).
     try:
