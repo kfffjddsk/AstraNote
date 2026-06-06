@@ -193,6 +193,17 @@ class SyncClient:
     # Endpoints
     # ------------------------------------------------------------------
 
+    def register(self, username: str, password: str) -> dict[str, Any]:
+        """Call ``POST /auth/register`` and return the parsed response body."""
+        try:
+            response = self._client.post(
+                "/auth/register",
+                json={"username": username, "password": password},
+            )
+        except httpx.HTTPError as exc:
+            raise SyncError(0, f"network error: {exc}") from exc
+        return _wrap_response(response)
+
     def login(self, username: str, password: str) -> dict[str, Any]:
         """Call ``POST /auth/login`` and return the parsed response body."""
         try:

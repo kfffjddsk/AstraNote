@@ -293,31 +293,39 @@ _GOOGLE_SCOPE = "openid email profile"
 
 
 class SyncLoginDialog(QDialog):
-    """Two-tab dialog for authenticating with the AstraNotes sync server.
+    """Account dialog — sign in, register, or continue with Google.
 
-    Tab 1 — Local account: username + password → ``POST /auth/login``.
-    Tab 2 — Sign in with Google: PKCE flow via system browser +
-    temporary localhost redirect server → ``POST /auth/callback``.
+    All three tabs work locally (no sync server required).  If a
+    *sync_client* is provided the dialog also attempts to authenticate
+    with the sync server as a best-effort side effect so that the caller
+    can sync immediately after the dialog closes.
 
-    After a successful sign-in, the token is saved via
-    :func:`~src.core.sync_client.save_cached_token` and the dialog accepts.
+    Tabs:
+      1. Sign in    — ``AccountStore.authenticate()`` → ``SessionManager.create()``
+      2. Register   — ``AccountStore.register()`` → ``SessionManager.create()``
+      3. Google     — PKCE desktop flow → ``AccountStore.get_or_create_oauth_account()``
+                      → ``SessionManager.create()``
 
-    Refs: [BL B-87, B-89] [REQ R13.14]
+    Refs: [BL B-87, B-89] [REQ R13.5, R13.8]
     """
 
     def __init__(
         self,
-        sync_client: "SyncClient",  # noqa: F821
+        store: "DatabaseStore",
         data_dir: Path,
+        sync_client: Optional["SyncClient"] = None,
         google_client_id: str = "",
+        google_client_secret: str = "",
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Sign in to Sync")
-        self.setMinimumWidth(380)
-        self._client = sync_client
+        self.setWindowTitle("Account")
+        self.setMinimumWidth(400)
+        self._store = store
         self._data_dir = data_dir
+        self._sync_client = sync_client
         self._google_client_id = google_client_id
+        self._google_client_secret = google_client_secret
         self._oauth_server: Optional[_OAuthCallbackServer] = None
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(500)
@@ -328,7 +336,8 @@ class SyncLoginDialog(QDialog):
 
         layout = QVBoxLayout(self)
         self._tabs = QTabWidget()
-        self._tabs.addTab(self._build_local_tab(), "Local account")
+        self._tabs.addTab(self._build_local_tab(), "Sign in")
+        self._tabs.addTab(self._build_register_tab(), "Register")
         self._tabs.addTab(self._build_google_tab(), "Sign in with Google")
         layout.addWidget(self._tabs)
 
@@ -361,22 +370,47 @@ class SyncLoginDialog(QDialog):
         form.addRow(signin_btn)
         return w
 
+    def _build_register_tab(self) -> QWidget:
+        w = QWidget()
+        form = QFormLayout(w)
+        form.setContentsMargins(12, 12, 12, 12)
+        self._reg_username_edit = QLineEdit()
+        self._reg_username_edit.setPlaceholderText("3–32 chars, letters/digits/underscore")
+        form.addRow("Username:", self._reg_username_edit)
+        self._reg_password_edit = QLineEdit()
+        self._reg_password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self._reg_password_edit.setPlaceholderText("At least 8 characters")
+        form.addRow("Password:", self._reg_password_edit)
+        self._reg_confirm_edit = QLineEdit()
+        self._reg_confirm_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self._reg_confirm_edit.setPlaceholderText("Repeat password")
+        self._reg_confirm_edit.returnPressed.connect(self._on_register)
+        form.addRow("Confirm:", self._reg_confirm_edit)
+        self._reg_error = QLabel("")
+        self._reg_error.setWordWrap(True)
+        self._reg_error.setStyleSheet("color: red;")
+        form.addRow(self._reg_error)
+        reg_btn = QPushButton("Create account")
+        reg_btn.clicked.connect(self._on_register)
+        form.addRow(reg_btn)
+        return w
+
     def _build_google_tab(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
         if not self._google_client_id:
-            layout.addWidget(
-                QLabel(
-                    "Google sign-in is not configured on this server.\n"
-                    "Use the 'Local account' tab instead."
-                )
+            lbl = QLabel(
+                "Google sign-in requires a Google OAuth client ID.\n"
+                "Add google_client_id to your config.json to enable it."
             )
+            lbl.setWordWrap(True)
+            layout.addWidget(lbl)
             layout.addStretch(1)
             return w
         desc = QLabel(
-            "Click the button below to open Google sign-in in your browser.\n"
+            "Click below to open Google sign-in in your browser.\n"
             "Return here once you have signed in."
         )
         desc.setWordWrap(True)
@@ -391,7 +425,7 @@ class SyncLoginDialog(QDialog):
         return w
 
     # ------------------------------------------------------------------
-    # Local sign-in
+    # Sign in (local)
     # ------------------------------------------------------------------
     def _on_local_signin(self) -> None:
         username = self._username_edit.text().strip()
@@ -401,15 +435,52 @@ class SyncLoginDialog(QDialog):
             return
         self._local_error.setText("")
         try:
-            from src.core.sync_client import SyncClient, save_cached_token
-            response = self._client.login(username, password)
-            save_cached_token(self._data_dir, response)
+            from src.core.auth import AccountStore, SessionManager
+            account = AccountStore(self._data_dir).authenticate(username, password)
+            SessionManager.create(self._data_dir, account["account_id"], account["username"])
+            # Best-effort: also get a sync server JWT so sync works immediately.
+            if self._sync_client is not None:
+                try:
+                    resp = self._sync_client.login(username, password)
+                    save_cached_token(self._data_dir, resp)
+                except Exception:
+                    pass  # server not running — sync will inform the user later
             self.accept()
         except Exception as exc:
             self._local_error.setText(str(exc))
 
     # ------------------------------------------------------------------
-    # Google PKCE sign-in
+    # Register (local)
+    # ------------------------------------------------------------------
+    def _on_register(self) -> None:
+        username = self._reg_username_edit.text().strip()
+        password = self._reg_password_edit.text()
+        confirm = self._reg_confirm_edit.text()
+        if not username or not password:
+            self._reg_error.setText("Username and password are required.")
+            return
+        if password != confirm:
+            self._reg_error.setText("Passwords do not match.")
+            return
+        self._reg_error.setText("")
+        try:
+            from src.core.auth import AccountStore, SessionManager
+            account_id = AccountStore(self._data_dir).register(username, password)
+            SessionManager.create(self._data_dir, account_id, username)
+            # Best-effort: also register + login on sync server.
+            if self._sync_client is not None:
+                try:
+                    self._sync_client.register(username, password)
+                    resp = self._sync_client.login(username, password)
+                    save_cached_token(self._data_dir, resp)
+                except Exception:
+                    pass
+            self.accept()
+        except Exception as exc:
+            self._reg_error.setText(str(exc))
+
+    # ------------------------------------------------------------------
+    # Google PKCE sign-in (desktop code exchange — no sync server needed)
     # ------------------------------------------------------------------
     def _on_google_signin(self) -> None:
         self._code_verifier = secrets.token_urlsafe(43)
@@ -464,13 +535,43 @@ class SyncLoginDialog(QDialog):
             return
 
         try:
-            from src.core.sync_client import save_cached_token
-            response = self._client.callback_exchange(
-                code=code,
-                code_verifier=self._code_verifier,
-                redirect_uri=self._redirect_uri,
+            import json as _json
+            import httpx as _httpx
+            from src.core.auth import AccountStore, SessionManager
+            # Exchange the code with Google directly (desktop PKCE — no server needed).
+            resp = _httpx.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "code": code,
+                    "client_id": self._google_client_id,
+                    "client_secret": self._google_client_secret,
+                    "redirect_uri": self._redirect_uri,
+                    "grant_type": "authorization_code",
+                    "code_verifier": self._code_verifier,
+                },
+                timeout=15,
             )
-            save_cached_token(self._data_dir, response)
+            if not resp.is_success:
+                raise RuntimeError(f"Google token exchange failed ({resp.status_code}): {resp.text[:200]}")
+            tokens = resp.json()
+            id_token = tokens.get("id_token", "")
+            if not id_token:
+                raise RuntimeError("No id_token in Google response")
+            # Decode the id_token payload without signature verification
+            # (we trust Google's TLS-secured token endpoint).
+            payload_b64 = id_token.split(".")[1]
+            payload_b64 += "=" * (4 - len(payload_b64) % 4)
+            claims = _json.loads(base64.urlsafe_b64decode(payload_b64))
+            email = claims.get("email", "")
+            sub = claims.get("sub", "")
+            if not email or not sub:
+                raise RuntimeError("Missing email or sub in Google id_token")
+            account_info = AccountStore(self._data_dir).get_or_create_oauth_account(email, sub)
+            SessionManager.create(
+                self._data_dir,
+                account_info["account_id"],
+                account_info["username"],
+            )
             self.accept()
         except Exception as exc:
             if hasattr(self, "_google_status"):
@@ -1489,6 +1590,8 @@ class MainWindow(QMainWindow):
         parent: Optional[QWidget] = None,
         sync_url: str = "",
         sync_auto_interval: int = 0,
+        google_client_id: str = "",
+        google_client_secret: str = "",
     ) -> None:
         super().__init__(parent)
         self._store = store
@@ -1497,6 +1600,8 @@ class MainWindow(QMainWindow):
         self._data_dir = data_dir  # optional, for account-aware list [B-108]
         self._sync_url = sync_url
         self._sync_auto_interval = sync_auto_interval
+        self._google_client_id = google_client_id
+        self._google_client_secret = google_client_secret
         # State
         self._current_note: Optional[Note] = None
         self._cached_passphrase: Optional[str] = None
@@ -1675,7 +1780,7 @@ class MainWindow(QMainWindow):
             line.setFrameShape(QFrame.Shape.VLine)
             line.setFrameShadow(QFrame.Shadow.Sunken)
             return line
-        self._status_sync_label = QLabel("⬤ Not synced")
+        self._status_sync_label = QLabel("⬤ Not signed in")
         bar.addPermanentWidget(self._status_sync_label)
         bar.addPermanentWidget(_sep())
         bar.addPermanentWidget(self._status_note_label)
@@ -1938,8 +2043,24 @@ class MainWindow(QMainWindow):
     # Sync  [BL B-89, B-90]
     # ------------------------------------------------------------------
 
+    def _account_dialog(self) -> "SyncLoginDialog":
+        """Build the account dialog with the current store + optional sync client."""
+        data_dir = self._data_dir or Path(".")
+        return SyncLoginDialog(
+            store=self._store,
+            data_dir=data_dir,
+            sync_client=SyncClient(base_url=self._sync_url) if self._sync_url else None,
+            google_client_id=self._google_client_id,
+            google_client_secret=self._google_client_secret,
+            parent=self,
+        )
+
     def _on_sync(self) -> None:
-        """Toolbar / Sync Now: push+pull cycle.  Opens sign-in dialog when needed."""
+        """Toolbar / Sync Now: push+pull cycle.
+
+        Layer 2: ensures a local account session is active.
+        Layer 3: requires a sync server JWT (obtained during login).
+        """
         if not self._sync_url:
             QMessageBox.information(
                 self,
@@ -1951,18 +2072,24 @@ class MainWindow(QMainWindow):
             return  # already in flight
 
         data_dir = self._data_dir or Path(".")
+
+        # Layer 2: ensure local account is active.
+        from src.core.auth import SessionManager
+        if SessionManager.load(data_dir) is None:
+            if self._account_dialog().exec() != QDialog.DialogCode.Accepted:
+                return
+
+        # Layer 3: need a sync server JWT to push/pull.
         token_data = load_cached_token(data_dir)
         if token_data is None:
-            dlg = SyncLoginDialog(
-                sync_client=SyncClient(base_url=self._sync_url),
-                data_dir=data_dir,
-                parent=self,
+            QMessageBox.warning(
+                self,
+                "Sync server authentication needed",
+                "You are signed in locally but not yet authenticated with the "
+                "sync server.\n\nSign out and sign back in while the sync "
+                "server is running to enable sync.",
             )
-            if dlg.exec() != QDialog.DialogCode.Accepted:
-                return
-            token_data = load_cached_token(data_dir)
-            if token_data is None:
-                return
+            return
 
         client = SyncClient(base_url=self._sync_url)
         worker = SyncWorker(
@@ -1981,29 +2108,18 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def _on_sync_login(self) -> None:
-        """Sign In... menu item: open login dialog without triggering sync."""
-        if not self._sync_url:
-            QMessageBox.information(
-                self,
-                "Sync not configured",
-                "Configure a sync server URL in Settings first.",
-            )
-            return
-        data_dir = self._data_dir or Path(".")
-        dlg = SyncLoginDialog(
-            sync_client=SyncClient(base_url=self._sync_url),
-            data_dir=data_dir,
-            parent=self,
-        )
-        dlg.exec()
+        """Account / Sign In... menu item: open account dialog."""
+        self._account_dialog().exec()
 
     def _on_sync_logout(self) -> None:
-        """Sign Out menu item: clear cached token and update status."""
+        """Sign Out: clear local session, server JWT, and stop auto-sync timer."""
+        from src.core.auth import SessionManager
         data_dir = self._data_dir or Path(".")
+        SessionManager.delete(data_dir)
         delete_cached_token(data_dir)
         if self._auto_sync_timer is not None:
             self._auto_sync_timer.stop()
-        self._status_sync_label.setText("⬤ Not synced")
+        self._status_sync_label.setText("⬤ Not signed in")
 
     def _on_sync_progress(self, msg: str) -> None:
         self.statusBar().showMessage(msg, 0)

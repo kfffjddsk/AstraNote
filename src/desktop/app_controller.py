@@ -113,6 +113,8 @@ class AppController:
                 data_dir=data_dir,
                 sync_url=self.config.get("sync_server_url") or "",
                 sync_auto_interval=auto_interval,
+                google_client_id=self.config.get("google_client_id") or "",
+                google_client_secret=self.config.get("google_client_secret") or "",
             )
             window.show()
 
