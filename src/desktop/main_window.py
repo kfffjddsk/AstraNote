@@ -21,6 +21,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
+    QColor,
     QFont,
     QIcon,
     QTextCharFormat,
@@ -1767,7 +1768,7 @@ class MainWindow(QMainWindow):
     def _build_status_bar(self) -> None:
         """JEDITOR-style status bar with permanent widgets.  [B-110 Sprint 4C]
         Permanent widgets (right-aligned, in order):
-          ...current note title  ...encryption indicator  ...note count
+          account | sync | note title | encryption | note count
         """
         bar = QStatusBar(self)
         bar.setSizeGripEnabled(False)
@@ -1780,7 +1781,10 @@ class MainWindow(QMainWindow):
             line.setFrameShape(QFrame.Shape.VLine)
             line.setFrameShadow(QFrame.Shadow.Sunken)
             return line
-        self._status_sync_label = QLabel("⬤ Not signed in")
+        self._status_account_label = QLabel("👤 Guest")
+        self._status_sync_label = QLabel("⬤ Not synced")
+        bar.addPermanentWidget(self._status_account_label)
+        bar.addPermanentWidget(_sep())
         bar.addPermanentWidget(self._status_sync_label)
         bar.addPermanentWidget(_sep())
         bar.addPermanentWidget(self._status_note_label)
@@ -1932,30 +1936,43 @@ class MainWindow(QMainWindow):
         if not self._search_bar.text().strip():
             self._populate_note_list_items()
         self._update_status_bar()
-    def _populate_note_list_items(self) -> None:
-        """Fill the list widget; use account sections when a session exists."""
-        self._note_list.clear()
-        # Attempt account-aware list  [B-108]
-        account_id: Optional[str] = None
+        self._update_account_label()
+
+    def _update_account_label(self) -> None:
+        """Refresh the account indicator in the status bar."""
+        text = "👤 Guest"
         if self._data_dir:
             try:
                 from src.core.auth import SessionManager
-                session = SessionManager(self._data_dir).load()
+                session = SessionManager.load(self._data_dir)
                 if session:
-                    account_id = session.account_id
+                    text = f"👤 {session['username']}"
             except Exception:
                 pass
+        self._status_account_label.setText(text)
+
+    def _current_account_id(self) -> Optional[str]:
+        """Return the active session account_id, or None if in guest mode."""
+        if not self._data_dir:
+            return None
+        try:
+            from src.core.auth import SessionManager
+            session = SessionManager.load(self._data_dir)
+            return session["account_id"] if session else None
+        except Exception:
+            return None
+
+    def _populate_note_list_items(self) -> None:
+        """Fill the list widget; use account sections when a session exists."""
+        self._note_list.clear()
+        account_id = self._current_account_id()
         account_notes, local_notes = self._store.list(account_id=account_id)
         if account_notes:
-            header = QListWidgetItem("-€-€ Your Notes -€-€")
-            header.setFlags(Qt.ItemFlag.NoItemFlags)
-            self._note_list.addItem(header)
+            self._note_list.addItem(self._make_section_header("Your Notes"))
             for note in account_notes:
                 self._note_list.addItem(self._make_note_item(note))
         if account_notes and local_notes:
-            header2 = QListWidgetItem("-€-€ Local Notes -€-€")
-            header2.setFlags(Qt.ItemFlag.NoItemFlags)
-            self._note_list.addItem(header2)
+            self._note_list.addItem(self._make_section_header("Guest Notes"))
         for note in local_notes:
             self._note_list.addItem(self._make_note_item(note))
     @staticmethod
@@ -1964,6 +1981,18 @@ class MainWindow(QMainWindow):
         item = QListWidgetItem(display)
         item.setData(Qt.ItemDataRole.UserRole, note.id)
         return item
+
+    @staticmethod
+    def _make_section_header(text: str) -> QListWidgetItem:
+        item = QListWidgetItem(f"  {text}")
+        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        font = item.font()
+        font.setBold(True)
+        font.setItalic(True)
+        item.setFont(font)
+        item.setForeground(QColor("#888888"))
+        return item
+
     # ------------------------------------------------------------------
     # Search  [B-107]
     # ------------------------------------------------------------------
@@ -2078,6 +2107,7 @@ class MainWindow(QMainWindow):
         if SessionManager.load(data_dir) is None:
             if self._account_dialog().exec() != QDialog.DialogCode.Accepted:
                 return
+            self.populate_note_list()  # update account label after fresh login
 
         # Layer 3: need a sync server JWT to push/pull.
         token_data = load_cached_token(data_dir)
@@ -2110,6 +2140,7 @@ class MainWindow(QMainWindow):
     def _on_sync_login(self) -> None:
         """Account / Sign In... menu item: open account dialog."""
         self._account_dialog().exec()
+        self.populate_note_list()
 
     def _on_sync_logout(self) -> None:
         """Sign Out: clear local session, server JWT, and stop auto-sync timer."""
@@ -2119,7 +2150,8 @@ class MainWindow(QMainWindow):
         delete_cached_token(data_dir)
         if self._auto_sync_timer is not None:
             self._auto_sync_timer.stop()
-        self._status_sync_label.setText("⬤ Not signed in")
+        self._status_sync_label.setText("⬤ Not synced")
+        self.populate_note_list()
 
     def _on_sync_progress(self, msg: str) -> None:
         self.statusBar().showMessage(msg, 0)
@@ -2267,7 +2299,7 @@ class MainWindow(QMainWindow):
                     encrypted_blob = BlobCodec.encrypt(raw_blob, engine)
                     if self._current_note is None:
                         note = Note.create(alias, "", encrypted=True, blob=encrypted_blob)
-                        self._store.add(note)
+                        self._store.add(note, account_id=self._current_account_id())
                         self._current_note = note
                         self._register_current_editor(note)
                     else:
@@ -2297,7 +2329,7 @@ class MainWindow(QMainWindow):
                 return
             if self._current_note is None:
                 note = Note.create(title, content)
-                self._store.add(note)
+                self._store.add(note, account_id=self._current_account_id())
                 self._current_note = note
                 self._register_current_editor(note)
             else:

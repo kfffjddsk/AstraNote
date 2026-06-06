@@ -724,10 +724,10 @@ class TestMainWindowSyncUI:
         assert hasattr(win, "_action_sync_signin")
         assert hasattr(win, "_action_sync_signout")
 
-    def test_status_sync_label_starts_as_not_signed_in(self, tmp_path: Path):
-        """§9.4 Sync status label shows 'Not signed in' on startup."""
+    def test_status_account_label_starts_as_guest(self, tmp_path: Path):
+        """§9.4 Account label shows 'Guest' on startup (no session)."""
         win, _, _ = _make_window_with_sync(tmp_path)
-        assert "Not signed in" in win._status_sync_label.text()
+        assert "Guest" in win._status_account_label.text()
 
     def test_on_sync_shows_info_when_no_url_configured(self, tmp_path: Path):
         """§9.5 _on_sync() shows info dialog when sync_url is empty."""
@@ -736,9 +736,10 @@ class TestMainWindowSyncUI:
             win._on_sync()
             mock_info.assert_called_once()
 
-    def test_on_sync_logout_clears_status_to_not_signed_in(self, tmp_path: Path):
-        """§9.6 _on_sync_logout() resets status label to 'Not signed in'."""
+    def test_on_sync_logout_clears_status_to_not_synced(self, tmp_path: Path):
+        """§9.6 _on_sync_logout() resets sync label to 'Not synced' and account to 'Guest'."""
         win, _, _ = _make_window_with_sync(tmp_path)
         win._status_sync_label.setText("⬤ Synced")
         win._on_sync_logout()
-        assert "Not signed in" in win._status_sync_label.text()
+        assert "Not synced" in win._status_sync_label.text()
+        assert "Guest" in win._status_account_label.text()
