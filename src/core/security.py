@@ -90,20 +90,11 @@ class EncryptionEngine:
 
 
 class KeyManager:
-    """Validates the passphrase and vends :class:`EncryptionEngine` instances.
-
-    Enforces the minimum passphrase length policy.  [BL B-34] [REQ R2.11]
-    """
-
-    MIN_PASSPHRASE_LEN: int = 8
+    """Validates the passphrase and vends :class:`EncryptionEngine` instances."""
 
     def __init__(self, passphrase: str, *, iterations: int = EncryptionEngine.DEFAULT_ITERATIONS) -> None:
         if not passphrase or not passphrase.strip():
             raise ValueError("Passphrase must not be empty or whitespace.")
-        if len(passphrase) < self.MIN_PASSPHRASE_LEN:
-            raise ValueError(
-                f"Passphrase must be at least {self.MIN_PASSPHRASE_LEN} characters."
-            )
         self._passphrase = passphrase
         self._iterations = iterations
 

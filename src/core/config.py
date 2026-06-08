@@ -36,7 +36,7 @@ ALLOWED_KEYS: frozenset[str] = frozenset(
         "default_encrypt",
         "font_family",
         "font_size",
-        "passphrase_min_length",
+        "gpu_acceleration",
         "plugin_dir",
         "google_client_id",
         "google_client_secret",
@@ -58,9 +58,9 @@ _TYPE_MAP: dict[str, type] = {
     "default_encrypt": str,
     "font_family": str,
     "font_size": int,
+    "gpu_acceleration": str,
     "google_client_id": str,
     "google_client_secret": str,
-    "passphrase_min_length": int,
     "plugin_dir": str,
     "security_level": str,
     "sync_auto_interval": int,
@@ -79,9 +79,9 @@ DEFAULTS: dict[str, Any] = {
     "default_encrypt": "no",
     "font_family": "",
     "font_size": 12,
+    "gpu_acceleration": "no",
     "google_client_id": "",
     "google_client_secret": "",
-    "passphrase_min_length": 8,
     "plugin_dir": None,
     "security_level": "high",
     "sync_auto_interval": 0,
@@ -95,6 +95,7 @@ _VALUE_CONSTRAINTS: dict[str, frozenset] = {
     "accent_color": frozenset({"purple", "pink", "cyan", "green", "orange"}),
     "auto_login": frozenset({"yes", "no"}),
     "default_encrypt": frozenset({"yes", "no"}),
+    "gpu_acceleration": frozenset({"yes", "no"}),
     "security_level": frozenset({"high", "session"}),  # B-98 [REQ R9.8]
     "theme": frozenset({"light", "dark"}),
     "word_wrap": frozenset({"yes", "no"}),
@@ -202,8 +203,6 @@ class ConfigStore:
             )
 
         # Additional numeric constraints.
-        if key == "passphrase_min_length" and value < 8:
-            raise ValueError("passphrase_min_length must be at least 8.")
         if key == "font_size" and value < 6:
             raise ValueError("font_size must be at least 6.")
         if key == "sync_auto_interval" and value < 0:
