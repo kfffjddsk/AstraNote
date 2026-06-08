@@ -210,6 +210,9 @@ def _load_one(
             if isinstance(allowed_raw, list) and allowed_raw:
                 inst_name = getattr(instance, "name", None) or plugin_id
                 if inst_name not in allowed_raw:
+                    # Still add to _all_plugins so Plugin Admin can show and re-enable it.
+                    if not any(type(p) is type(instance) for p in registry._all_plugins):
+                        registry._all_plugins.append(instance)
                     logger.info(
                         "Plugin %r excluded by allowed_plugins config; skipping registration.",
                         inst_name,
