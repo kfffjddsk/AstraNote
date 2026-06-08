@@ -530,17 +530,23 @@ class MainWindow(QMainWindow):
 
     def _retarget_tab_editor(
         self, note: Note, current: PluginEditorHost, target_mime: str
-    ) -> PluginEditorHost:
+    ) -> Optional[PluginEditorHost]:
         """Ensure *current*'s tab uses the editor for *target_mime*.
 
         Encrypted notes always open in the Tiptap host (the real MIME is unknown
         until decryption).  Once decrypted, if the content is actually audio or
         video we swap the tab to the matching media editor so it plays instead
-        of showing a raw data URI.  Returns the editor host to load into.
+        of showing a raw data URI.  Returns the editor host to load into, or
+        None if the required plugin is unavailable (error dialog already shown).
         """
         cur_mime = getattr(current, "_routing_mime", "text/html")
         if self._mime_family(cur_mime) == self._mime_family(target_mime):
             return current
+        # For media MIMEs, verify a plugin is available before replacing the tab.
+        if target_mime.startswith(("audio/", "video/")):
+            if self._find_editor_for_mime(target_mime) is None:
+                self._warn_plugin_missing(note.title, target_mime)
+                return None
         idx = self._tab_widget.indexOf(current)
         label = (
             self._tab_widget.tabText(idx)
@@ -1308,6 +1314,8 @@ class MainWindow(QMainWindow):
                 real_title, decrypted_content = result
                 target_mime = self._mime_for_content(decrypted_content or "")
                 editor = self._retarget_tab_editor(note, editor, target_mime)
+                if editor is None:
+                    return
                 editor.load(note, decrypted_content=decrypted_content)
                 editor.set_title(real_title)
                 self.reset_idle_timer()
@@ -1343,6 +1351,8 @@ class MainWindow(QMainWindow):
         real_title, decrypted = result
         target_mime = self._mime_for_content(decrypted or "")
         editor = self._retarget_tab_editor(note, editor, target_mime)
+        if editor is None:
+            return
         editor.load(note, decrypted_content=decrypted)
         editor.set_title(real_title)
 

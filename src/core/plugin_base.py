@@ -172,7 +172,8 @@ class PluginRegistry:
 
     def __init__(self) -> None:
         self._hooks: dict[str, list[Callable]] = {}
-        self._plugins: list[PluginBase] = []
+        self._plugins: list[PluginBase] = []       # currently active plugins
+        self._all_plugins: list[PluginBase] = []   # all ever-loaded instances (never pruned)
         self._manifests: list[dict] = []  # loaded plugin.json records [B-99]
 
     def register_plugin(self, plugin: PluginBase, *, is_official: bool = True) -> None:
@@ -187,6 +188,9 @@ class PluginRegistry:
         if any(type(p) is type(plugin) for p in self._plugins):
             logger.warning("Plugin %r already registered; skipping.", plugin.name)
             return
+        # _all_plugins is a permanent lifetime inventory; only append if not already there.
+        if not any(type(p) is type(plugin) for p in self._all_plugins):
+            self._all_plugins.append(plugin)
         self._plugins.append(plugin)
         if not is_official:
             logger.warning(

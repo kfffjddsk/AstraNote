@@ -131,26 +131,24 @@ class PluginsDialog(QDialog):
     def _populate_installed(self) -> None:
         self._installed_tree.blockSignals(True)
         self._installed_tree.clear()
-        allowed_raw = self._config.get("allowed_plugins") or []
-        allowed: set[str] = set(allowed_raw) if isinstance(allowed_raw, list) else set()
+        # Use _all_plugins (lifetime inventory) so disabled plugins remain visible
+        # and can be re-enabled.  Active status is derived from the live _plugins list.
+        all_plugins = getattr(self._registry, "_all_plugins", None) or self._registry._plugins
+        active_ids = {id(p) for p in self._registry._plugins}
         manifests = {
             m.get("plugin_id") or m.get("name"): m
             for m in registry_manifests(self._registry)
         }
-        for plugin in self._registry._plugins:
+        for plugin in all_plugins:
             name = getattr(plugin, "name", type(plugin).__name__) or type(plugin).__name__
             version = getattr(plugin, "version", "") or "-"
             manifest = manifests.get(name)
             source = manifest.get("main", "<builtin>") if manifest else "<builtin>"
-            status = "✓ Allowed" if (not allowed or name in allowed) else "Disabled"
+            is_active = id(plugin) in active_ids
+            status = "✓ Active" if is_active else "Disabled"
             item = QTreeWidgetItem([name, version, status, source])
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(
-                0,
-                Qt.CheckState.Checked
-                if (not allowed or name in allowed)
-                else Qt.CheckState.Unchecked,
-            )
+            item.setCheckState(0, Qt.CheckState.Checked if is_active else Qt.CheckState.Unchecked)
             item.setData(0, Qt.ItemDataRole.UserRole, plugin)
             item.setData(1, Qt.ItemDataRole.UserRole, manifest)
             self._installed_tree.addTopLevelItem(item)
