@@ -16,6 +16,7 @@ QListWidget::item:selected { background-color: #bd93f9; color: #ffffff; }
 QListWidget::item:selected:!active { background-color: #bd93f9; color: #ffffff; }
 QListWidget::item:hover:!selected { background-color: #ececef; }
 QListWidget::item:disabled { color: #a0a0a8; font-style: italic; }
+#SettingsCategory::item:hover:!selected { background: transparent; }
 QTextEdit, QLineEdit { background-color: white; color: #282a36;
     border: 2px solid #e2e2e6; border-radius: 5px; padding: 6px;
     selection-background-color: #ff79c6; selection-color: #ffffff; }

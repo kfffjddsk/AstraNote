@@ -70,6 +70,21 @@ class AppController:
         # ── Step 1: Load configuration ────────────────────────────────
         self.config = ConfigStore(config_path=self._config_path)
 
+        # ── GPU acceleration ──────────────────────────────────────────
+        # Must be decided before QApplication / WebEngine initialises.
+        # Default is OFF (--disable-gpu) to avoid the window-flash caused by
+        # the Chromium GPU process cold-starting the first time a QWebEngineView
+        # is added to an already-shown window.
+        self._gpu_accel = (self.config.get("gpu_acceleration") or "no") == "yes"
+        if not self._gpu_accel:
+            os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu"
+
+        # QtWebEngine requires a shared OpenGL context across the app; this must
+        # be set BEFORE any QApplication is constructed.  Without it WebEngine
+        # logs a warning and can recreate GL surfaces (contributing to flicker).
+        from PySide6.QtCore import Qt as _Qt
+        QApplication.setAttribute(_Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
+
         # ── Step 2: Resolve data_dir ───────────────────────────────────
         data_dir = self._resolve_data_dir()
 
@@ -95,13 +110,17 @@ class AppController:
             return 1
 
         try:
-            # ── Step 5: Validate plugin manifests ────────────────────
+            # ── Step 5: Resolve plugin directories and load manifests ─
             self.registry = PluginRegistry()
             plugin_dir_cfg = self.config.get("plugin_dir")
-            plugin_dir = (
+            user_plugin_dir = (
                 Path(plugin_dir_cfg) if plugin_dir_cfg else data_dir / "plugins"
             )
-            self.registry.load_manifests(plugin_dir)
+            # Bundled plugins live in src/plugins/ (not desktop-specific)
+            bundled_plugin_dir = Path(__file__).parent.parent / "plugins"
+            # Pre-load bundled manifests for PluginsDialog inventory.
+            # User-plugin manifests are appended by load_plugins() below.
+            self.registry.load_manifests(bundled_plugin_dir)
 
             # ── Step 6: Create Qt application and main window ────────
             app = QApplication.instance() or QApplication(sys.argv)
@@ -129,6 +148,10 @@ class AppController:
                 or os.environ.get("ASTRANOTES_GOOGLE_CLIENT_SECRET", "")
                 or _DEFAULT_GSECRET
             )
+            # The actual anti-flash fix lives in MainWindow._install_webengine_warmup(),
+            # which embeds a 1x1 QWebEngineView inside the window BEFORE it is shown
+            # so the window is created native-child-aware (a detached view here does
+            # not help — it never becomes a child of MainWindow).
             window = MainWindow(
                 store=self.store,
                 config=self.config,
@@ -141,7 +164,18 @@ class AppController:
             )
             window.show()
 
-            # ── Step 7: Populate note list and start timers ──────────
+            # ── Step 7: Load plugins (may show consent dialogs) ──────
+            from src.desktop.plugin_loader import load_plugins
+            # Bundled first so TextPlugin is always available
+            load_plugins(
+                bundled_plugin_dir, self.registry, self.config, parent_widget=window
+            )
+            # User-installed plugins (unverified — consent dialog shown)
+            load_plugins(
+                user_plugin_dir, self.registry, self.config, parent_widget=window
+            )
+
+            # ── Step 8: Populate note list and start timers ──────────
             window.populate_note_list()
             window.start_idle_timer()
             window.start_auto_sync_timer()
