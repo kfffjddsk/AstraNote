@@ -270,9 +270,7 @@ class MainWindow(QMainWindow):
         self._note_list = QListWidget()
         self._note_list.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._note_list.currentItemChanged.connect(self._on_note_selected)
-        self._note_list.itemClicked.connect(
-            lambda item: self._on_note_selected(item, None)
-        )
+        self._note_list.itemClicked.connect(self._on_note_item_clicked)
         left_layout.addWidget(self._note_list)
         left.setMinimumWidth(160)
         splitter.addWidget(left)
@@ -1311,6 +1309,7 @@ class MainWindow(QMainWindow):
             if previous is not None:
                 self._note_list.setCurrentItem(previous)
             else:
+                self._note_list.setCurrentRow(-1)
                 self._note_list.clearSelection()
             self._note_list.blockSignals(False)
             return
@@ -1330,6 +1329,26 @@ class MainWindow(QMainWindow):
                 return
         editor.load(note, decrypted_content=decrypted_content)
         self.reset_idle_timer()
+
+    def _on_note_item_clicked(self, item: QListWidgetItem) -> None:
+        """Re-click on an already-selected note: focus its existing tab.
+
+        ``itemClicked`` fires on every click, including when the same item is
+        re-clicked (``currentItemChanged`` does not fire in that case).  We
+        handle only the re-click case here — new-item navigation is handled
+        exclusively by ``_on_note_selected`` via ``currentItemChanged``.
+        """
+        note_id: Optional[str] = item.data(Qt.ItemDataRole.UserRole)
+        if not note_id:
+            return
+        if self._current_note is None or self._current_note.id != note_id:
+            # Different note: currentItemChanged already handled (or will handle) it.
+            return
+        editor = self._note_editors.get(note_id)
+        if editor is not None:
+            idx = self._tab_widget.indexOf(editor)
+            if idx >= 0:
+                self._tab_widget.setCurrentIndex(idx)
 
     # ------------------------------------------------------------------
     # Unlock button handler  [B-106]
