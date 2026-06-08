@@ -1,8 +1,8 @@
 # AstraNotes — Traceability Metrics (v2.1)
 
-**Version:** 2.10  
-**Date:** June 4, 2026  
-**Status:** Updated — Sprint 5A.2 sync-server hardening complete, 631 tests passing  
+**Version:** 2.11  
+**Date:** June 8, 2026  
+**Status:** Updated — Sprint 5D architecture refactoring complete  
 **Owner:** Human team member  
 **AI Partner:** Astra (GitHub Copilot)
 
@@ -96,7 +96,7 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 | FR-18 | **(R2.8)** Reject wrong passphrase; preserve data | US-2 · B-06/B-10/B-13 | `EncryptionEngine.decrypt()`, `cli.get/update/delete()` | BDD:get/update/delete (wrong passphrase); `Unit:TEE.test_wrong_passphrase_fails`; `Sprint1:S1` §7/§9/§10 | — | Fully Traced | `InvalidTag` from `cryptography.hazmat` propagates out of `BlobCodec.decrypt()`; CLI catches it and calls `sys.exit(1)` [2026-05-18] |
 | FR-19 | **(R2.9)** Sandbox binary storage: `[4B header_length][JSON header][raw payload bytes]` | US-2 · B-43 | `BlobCodec` (Sprint 0), `DatabaseStore.add/get()` | SD-1 §4.1/§4.2; `Unit:TNS`; `Sprint1:S1` §6/§7 | DM-3; ADR-01 | Fully Traced | `BlobCodec.encode()` + `encrypt()` in `DatabaseStore.add()`; `decrypt()` + `decode()` in `get()`. `[D-07]` `[D-10]` `[D-11]` |
 | FR-20 | **(R2.10)** No default key; key manager required for all encrypted operations | US-2 · B-17 | `DatabaseStore.__init__`, `KeyManager`, `cli.get/update/delete()` | `Unit:TNS.test_add_encrypted_note_requires_key_manager`; `Sprint1:S1` §7/§9/§10 | — | Fully Traced | — |
-| FR-21 | **(R2.11)** Reject empty or whitespace passphrase; minimum 8 characters | US-2 · B-34 | `KeyManager.__init__()` raises `ValueError`; `cli.add()` catches at prompt | `Sprint1:S1` §12 (`test_cli_add_passphrase_too_short_exits_nonzero`) | — | Fully Traced | `KeyManager` raises `ValueError` for passphrases shorter than 8 chars; B-34 done Sprint 0; Sprint 1 adds CLI-level tests |
+| FR-21 | **(R2.11)** Reject empty or whitespace passphrase; minimum 8 characters | US-2 · B-34 | `KeyManager.__init__()` raises `ValueError`; `cli.add()` catches at prompt | `Sprint1:S1` §12 (`test_cli_add_passphrase_too_short_exits_nonzero`) | — | Fully Traced | B-129 done Sprint 5D: `KeyManager.MIN_PASSPHRASE_LEN` removed; only empty/whitespace check retained. R2.11 updated. B-34 was Sprint 0. |
 | FR-22 | **(R2.12)** Updating/deleting unencrypted notes must not corrupt co-stored encrypted notes | US-2 · B-33 | `DatabaseStore` ACID | `Unit:TNS.test_delete_unencrypted_preserves_encrypted`; `Sprint1:S1` §9/§10 | — | Fully Traced | SQLite ACID + per-note blob writes eliminate corruption; CLI update/delete tested for co-existence invariant |
 | FR-23 | **(R2.13)** Only routing, crypto, and listing fields stored in plaintext; all else inside blob | US-2 · B-43/B-74 | `DatabaseStore`, `BlobCodec` | `Unit:TNS`; `Sprint1:S1` §6 | DM-2; DM-3 | Fully Traced | `notes` table stores only `id`, `title`, `format`, `encrypted`, `blob`; all content is in the blob; no plaintext content column |
 | FR-24 | **(R2.14)** `reencrypt <note_id>` command: prompt old→new passphrase; re-encrypt blob | US-2 · B-62 | `cli.reencrypt_cmd` | `Sprint3:S3` §6 (`TestCliReencrypt`) | — | Fully Traced | B-62 done Sprint 3: `reencrypt_cmd` implemented in `cli.py`; BDD scenario `test_reencrypt_an_encrypted_note_with_a_new_passphrase`; unit tests in `Sprint3:S3` §6 |
@@ -129,7 +129,7 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 | FR-37 | **(R4.3)** Plugins register post-action hooks (e.g., `post_add_note`) | US-4 · B-18 | `PluginRegistry.register_hook()` | SD-4; `on_note_added` in `summary_plugin.py`; `Sprint1:S1` §2 | — | Fully Traced | Hook dispatch tested in `Sprint1:S1` §2 (`test_plugin_registry_calls_hook`) |
 | FR-38 | **(R4.4)** Plugins provide additional CLI commands | US-4 · B-28 | `PluginBase.get_commands()`, `PluginRegistry`, `cli.add_command()` | `Sprint3:S3` §11 (`TestPluginCommandWiring`) | — | Fully Traced | B-28 done Sprint 3: plugin commands wired into `cli.py` via `cli.add_command()`; tested in `Sprint3:S3` §11 |
 | FR-39 | **(R4.5)** Core security immutable to plugins; crashes caught/logged; no eval/exec | US-4 · B-56 | `PluginBase`, `PluginRegistry.call_hook()` with `dataclasses.replace(note)` | `Sprint1:S1` §2 (crash isolation); `Sprint3:S3` §14 (`TestPluginSandboxing`) | — | Fully Traced | B-56 done Sprint 3: `call_hook()` passes `dataclasses.replace(note)` read-only copy; no eval/exec in plugin dispatch path; `TestPluginSandboxing` confirms mutation isolation |
-| FR-40 | **(R4.6)** Discover and load plugins from `plugins/` on startup | US-4 · B-37 | `discover_plugins()` in `plugin_base.py`; `cli.py` startup call | `Sprint1:S1` §3 (plugin discovery tests) | — | Fully Traced | B-37 done Sprint 1: `discover_plugins(plugin_dir, registry)` scans `*.py`, imports via `importlib`, registers all `PluginBase` subclasses |
+| FR-40 | **(R4.6)** Discover and load plugins from `plugins/` on startup | US-4 · B-37, B-130 | `discover_plugins()` in `plugin_base.py`; `cli.py` startup call; bundled plugins under `src/plugins/` (Sprint 5D move) | `Sprint1:S1` §3 (plugin discovery tests) | — | Fully Traced | B-37 done Sprint 1: `discover_plugins(plugin_dir, registry)` scans `*.py`, imports via `importlib`, registers all `PluginBase` subclasses. B-130 done Sprint 5D: plugins relocated to `src/plugins/`. |
 | FR-41 | **(R4.7)** Hook crash logged; does not kill the triggering operation | US-4 · B-38 | `PluginRegistry.call_hook()` | `Sprint1:S1` §2 (`test_plugin_registry_isolates_crashing_hook`) | — | Fully Traced | B-38 done Sprint 0: try/except per handler in `call_hook()`; exception logged, operation continues |
 | FR-42 | **(R4.8)** Duplicate plugin registration → skip with warning | US-4 · B-38 | `PluginRegistry.register_plugin()` | `Sprint1:S1` §2 (`test_plugin_registry_rejects_duplicate`) | — | Fully Traced | B-38 done Sprint 0: duplicate-ID check in `register_plugin()`; Sprint 1 B-83 adds explicit test |
 | FR-43 | **(R4.9)** `overrides` field validated against override policy (R7) | US-4/US-5 · B-24 | `PluginBase.overrides`, `PluginRegistry.register_plugin()` override check | `Sprint3:S3` §10 (`TestPluginOverridePolicy`) | — | Fully Traced | B-24 done Sprint 3: override check at plugin registration; red warning + `CONFIRM OVERRIDE` prompt; tested in `TestPluginOverridePolicy` |
@@ -137,6 +137,9 @@ Column key: **ID** | **Requirement (Source)** | **US / Backlog** | **Class/Objec
 | FR-45 | **(R4.11)** `plugin.json` manifest required; fields `plugin_id`, `name`, `version`, `engines`, `main` required; validated with `jsonschema` at startup `[D-12]` | US-4 · B-99 | `PluginRegistry.load_manifests()` (planned) | (none) | ADR-14 | Weakly Traced | Designed in manifest schema §3.1 and ADR-14; no implementation |
 | FR-46 | **(R4.12)** `is_official` server-assigned only; manifest `is_official` rejected; sideloaded defaults to `False` `[D-12]` | US-4 · B-99 | `PluginRegistry.load_manifests()` (planned) | (none) | ADR-14 | Weakly Traced | Designed in §3.1 and ADR-14; no implementation |
 | FR-47 | **(R4.13)** Trust-tier enforcement: `is_official = True` → full API; `is_official = False` → `EditorProvider` only; `PluginBase` hooks blocked `[D-12]` | US-4, US-13 · B-100 | `PluginRegistry.register_plugin()` (planned) | (none) | ADR-14 | Weakly Traced | Designed in §3.1 and ADR-14; no implementation |
+| FR-128 | **(R4.14)** PluginContext restricted API — plugins receive only PluginContext on initialize(); no direct store/config access | US-4 · B-123 | `PluginContext` in `src/core/plugin_context.py` | — | ADR-14 | Fully Traced | B-123 done Sprint 5D: PluginContext provides get_note() and get_config() read-only proxies |
+| FR-129 | **(R4.15)** PluginSecurity static AST scanner — forbidden module imports detected before plugin load | US-4, US-13 · B-124 | `PluginSecurity` in `src/core/plugin_security.py` | — | ADR-14 | Fully Traced | B-124 done Sprint 5D: AST import analysis on plugin .py files; scan() returns list of violations |
+| FR-130 | **(R4.16)** First-run plugin consent dialog — PluginConsentDialog before activating unverified plugins | US-4, US-9 · B-125 | `PluginConsentDialog` in `src/desktop/plugin_consent_dialog.py`, `PluginLoader` in `src/desktop/plugin_loader.py` | — | ADR-14 | Fully Traced | B-125 done Sprint 5D: consent dialog with plugin details shown once per plugin version |
 
 ---
 
@@ -347,12 +350,12 @@ Five elements appear in the design or source code without a traceable requiremen
 
 | Metric | Count | % of Total |
 |---|---|---|
-| Total requirements reviewed | 138 | 100% |
-| **Fully Traced** | 113 | 82% |
+| Total requirements reviewed | 141 | 100% |
+| **Fully Traced** | 116 | 82% |
 | **Partially Traced** | 3 | 2% |
 | **Weakly Traced** | 11 | 8% |
 | **Not Traced** | 11 | 8% |
-| Stable FR IDs assigned | 127 | — |
+| Stable FR IDs assigned | 130 | — |
 | Stable NFR IDs assigned | 14 | — |
 | UML elements without a requirement | 4 | — |
 
@@ -374,6 +377,8 @@ Five elements appear in the design or source code without a traceable requiremen
 
 > **Note `[LOG 05-04]`:** R11 expanded from 4 items to 12 (split into Desktop GUI Sprint 4 + Sync-Enabled Desktop Client Sprint 5 — one PySide6 app); R12 rewritten for three-layer model (8 → 7 items); R13 updated for optional auth (15 → 14 items, removed FR-119); R16 rewritten as sync server with push/pull model. Total 141 → 139. FR-114 dropped (offline covered by FR-76 — local SQLite is always on, not a cache). Total 139 → 138. `[LOG 05-04]`
 
+> **Note (2026-06-08 — Sprint 5D complete):** Sprint 5D delivered architecture refactoring: `notes.py` extracted into four modules (`note.py`, `store.py`, `container.py`, `editor_protocol.py`); `PluginContext` (FR-128) and `PluginSecurity` (FR-129) added as new Fully Traced requirements; `PluginConsentDialog` + `PluginLoader` (FR-130) added; `MainWindow` decomposed into purpose-built desktop modules; `src/desktop/sync/` package consolidated; `gpu_acceleration` config key added. R2.11 updated — passphrase minimum-length removed from enforcement (B-129). 3 new requirements added (FR-128–FR-130); total 141. All R4 plugin requirements now Fully Traced.
+
 ### Breakdown by Category
 
 | Requirement Group | Total | FT | PT | WT | NT |
@@ -381,7 +386,7 @@ Five elements appear in the design or source code without a traceable requiremen
 | R1 — Note Management (CRUD) | 10 | 9 | 0 | 0 | 0 |
 | R2 — Encryption | 16 | 16 | 0 | 0 | 0 |
 | R3 — Data Persistence | 8 | 6 | 0 | 0 | 0 |
-| R4 — Plugin System | 10 | 11 | 0 | 2 | 0 |
+| R4 — Plugin System | 13 | 13 | 0 | 0 | 0 |
 | R5 — CLI Interface | 3 | 2 | 1 | 0 | 0 |
 | R6 — Testing (NFR) | 5 | 4 | 1 | 0 | 0 |
 | R7 — Override Policy | 5 | 5 | 0 | 0 | 0 |
@@ -394,7 +399,7 @@ Five elements appear in the design or source code without a traceable requiremen
 | R14 — Database Storage | 13 | 11 | 0 | 2 | 0 |
 | R15 — Injection Prevention (NFR) | 9 | 7 | 0 | 2 | 0 |
 | R16 — Sync Server (updated) `[LOG 05-04]` | 8 | 0 | 0 | 3 | 5 |
-| **Total** | **138** | **105** | **4** | **18** | **11** |
+| **Total** | **141** | **116** | **4** | **15** | **11** |
 
 ---
 

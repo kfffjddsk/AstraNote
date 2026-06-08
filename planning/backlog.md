@@ -212,6 +212,41 @@ Items ordered by priority. Status reflects current state.
 
 ---
 
+## Sprint 5D — Architecture Refactoring ✅ Done (2026-06-08)
+
+> **Goal:** Decompose monolithic core and desktop modules into single-responsibility units; secure plugin architecture; sync package consolidation; GPU support. No new user-facing features.
+
+| ID | Item | User Story | Priority | Status |
+|----|------|------------|----------|--------|
+| B-122 | Extract Note, DatabaseStore, Container wire format, EditorProtocol from `notes.py` into separate modules; Alembic migration c7d2a8f1b9e4 | US-9, US-12 | High | ✅ Done |
+| B-123 | PluginContext restricted API surface passed to plugins on init | US-4 | High | ✅ Done |
+| B-124 | PluginSecurity static AST import scanner for untrusted plugin code | US-4, US-13 | High | ✅ Done |
+| B-125 | PluginLoader with PluginConsentDialog — first-run consent before activating unverified plugins | US-4, US-9 | Medium | ✅ Done |
+| B-126 | Decompose MainWindow into NoteEditorWidget, dialogs.py, Theme, SettingsDialog, PluginsDialog, PluginLoader | US-9 | High | ✅ Done |
+| B-127 | Consolidate SyncWorker, MergeWindow, SyncLoginDialog into `src/desktop/sync/` package | US-14 | Medium | ✅ Done |
+| B-128 | gpu_acceleration config key; AppController reads it at startup, sets --disable-gpu Chromium flag + AA_ShareOpenGLContexts | US-9 | Medium | ✅ Done |
+| B-129 | Remove passphrase minimum-length enforcement from KeyManager and ConfigStore; passphrase_min_length key retired | US-2 | Low | ✅ Done |
+| B-130 | Move plugins/ to src/plugins/ — bundled tiptap/voice/video plugins alongside other source modules | US-4 | Low | ✅ Done |
+
+---
+
+## Sprint 6 — Plugin Editor Integration *(Planned)*
+
+> **Goal:** Wire bundled plugins as real EditorProtocol providers; integrate ASTR container format end-to-end; expose gpu_acceleration in Settings; desktop account registration. Target: ≥ 700 tests.
+
+| ID | Description | US | Priority | Status |
+|----|-------------|----|----------|--------|
+| B-131 | ASTR Container format end-to-end — DatabaseStore.add/get/update uses Container codec; existing notes migrate via Alembic | US-12, US-2 | High | ⬜ Todo |
+| B-132 | Tiptap plugin implements EditorProtocol — create_editor() returns QWebEngineView hosting Vite/Tiptap bundle; content as HTML blob | US-9, US-4 | High | ⬜ Todo |
+| B-133 | Voice plugin implements EditorProtocol — create_editor() returns QWidget with record/stop/play; WAV payload via 5 MB threshold | US-9, US-4 | Medium | ⬜ Todo |
+| B-134 | Video plugin implements EditorProtocol — create_editor() returns QVideoWidget player; MP4 payload via 5 MB threshold | US-9, US-4 | Medium | ⬜ Todo |
+| B-135 | gpu_acceleration exposed in Settings dialog → Appearance tab; yes/no combo; requires app restart toast | US-9 | Low | ⬜ Todo |
+| B-136 | Desktop account registration — Register tab in SyncLoginDialog (resolves TD-05); POST /auth/register server endpoint | US-9, US-11 | Medium | ⬜ Todo |
+| B-137 | Tests for Sprint 5D new modules — Container, PluginContext, PluginSecurity, PluginLoader, PluginConsentDialog unit tests in `tests/test_sprint6.py` | US-4, US-9 | High | ⬜ Todo |
+| B-138 | search --encrypted flag — prompts passphrase once per encrypted note; B-29 now active | US-8 | Low | ⬜ Todo |
+
+---
+
 ## Tech Debt — Done ✅ (2026-06-05)
 
 | ID | Item | Resolved in | Notes |

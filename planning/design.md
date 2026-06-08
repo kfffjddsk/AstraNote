@@ -23,7 +23,7 @@ AstraNotes uses a **three-layer additive model** — each layer is independent a
 
 The CLI is the primary interface for Sprints 0–3. A PySide6 desktop app (Sprint 4: local CRUD; Sprint 5: sync added) shares the same core modules and SQLite local store. There is no browser-based surface — the sync server (Sprint 5) is a backend-only REST service.
 
-**Design status (updated 2026-05-21):** Sprint 2 complete. Core modules (`DatabaseStore`, `BlobCodec`, `EncryptionEngine`, `KeyManager`, `PluginBase`, `PluginRegistry`, `AccountStore`, `SessionManager`) and the Click CLI (including `register`, `login`, `logout`, `delete-account` commands) are implemented and tested. 246 tests pass; 100% branch coverage on all six core modules. Components marked `[planned]` are scheduled for Sprints 3–5. Open design gaps tracked in `Copilot/discussion-list.md`. `[LOG 05-21]`
+**Design status (updated 2026-06-08):** Sprints 0–5D complete. Sprint 5D refactored the core and desktop layers: `notes.py` extracted into `note.py`, `store.py`, `container.py`, `editor_protocol.py`; plugin system gained `PluginContext` and `PluginSecurity`; `MainWindow` decomposed into purpose-built modules; sync consolidated into `src/desktop/sync/`; `gpu_acceleration` config key added. 669+ tests pass. Sprint 6 (plugin editor integration) is next. `[Sprint 5D — 2026-06-08]`
 
 ---
 
@@ -61,10 +61,13 @@ The system is organized into five top-level packages. The CLI and desktop GUI de
 │  ┌────────────────────────────▼──────────────────────────────────────┐   │
 │  │  <<package>>  core                                                │   │
 │  │                                                                   │   │
-│  │   notes.py         security.py        plugin_base.py              │   │
-│  │   Note             EncryptionEngine   PluginBase (ABC)            │   │
-│  │   DatabaseStore    KeyManager         PluginRegistry              │   │
-│  │   BlobCodec                                                       │   │
+│  │   note.py          store.py           security.py                 │   │
+│  │   Note (dataclass) DatabaseStore      EncryptionEngine            │   │
+│  │                                       KeyManager                  │   │
+│  │   container.py     plugin_base.py     plugin_context.py           │   │
+│  │   Container        PluginBase (ABC)   PluginContext               │   │
+│  │   editor_protocol  PluginRegistry     plugin_security.py          │   │
+│  │   EditorProtocol                      PluginSecurity              │   │
 │  │                                                                   │   │
 │  │   [Planned]        [Planned]           [Planned]                  │   │
 │  │   AuthManager      AuditLogger         ConfigStore                │   │
@@ -147,6 +150,16 @@ The system is organized into five top-level packages. The CLI and desktop GUI de
   Wire format: [16B salt][12B IV][16B GCM tag][ciphertext] → base64
 
 ┌──────────────────────────────┐
+│  Container                   │  ASTR binary envelope  [Sprint 5D — B-122]
+├──────────────────────────────┤
+│ MAGIC: bytes = b'ASTR'       │
+│ VERSION: int = 1             │
+├──────────────────────────────┤
+│ + encode(header, payload)    │  → [4B magic][2B ver][header][payload]
+│ + decode(data) → (hdr, body) │
+└──────────────────────────────┘
+
+┌──────────────────────────────┐
 │  EditorProvider  <<ABC>>     │  extension type for content editing/viewing  [D-04, D-05]
 ├──────────────────────────────┤
 │ + plugin_id: str             │  unique namespace identifier  [D-05]
@@ -201,6 +214,24 @@ The system is organized into five top-level packages. The CLI and desktop GUI de
   Note isolation: dataclasses.replace(note) for all-primitive Note; any future mutable field
     (e.g. tags: list[str]) must be explicitly copied at the call site:  [D-09]
     dataclasses.replace(note, tags=list(note.tags))
+
+┌──────────────────────────────┐
+│  PluginContext               │  restricted host API  [Sprint 5D — B-123]
+├──────────────────────────────┤
+│ - _store: DatabaseStore      │  read-only proxy
+│ - _config: ConfigStore       │  read-only proxy
+├──────────────────────────────┤
+│ + get_note(note_id) → Note?  │
+│ + get_config(key) → value    │
+└──────────────────────────────┘
+
+┌──────────────────────────────┐
+│  PluginSecurity              │  AST scanner  [Sprint 5D — B-124]
+├──────────────────────────────┤
+│ FORBIDDEN_MODULES: frozenset │  os, subprocess, socket, ...
+├──────────────────────────────┤
+│ + scan(plugin_dir) → list    │  → list of violation strings; [] = clean
+└──────────────────────────────┘
 
 **plugin.json Manifest Schema** *(D-12 resolved 2026-05-12)* `[REQ R4.11]`
 
@@ -624,6 +655,12 @@ main.py  →  AppController(data_dir).run()
  │  data_dir = CLI --data-dir override ?? config["data_dir"]   [REQ R9.1]
  │    ── OSError (data_dir not writable) ─────────────────────────────────────────
  │         show error QMessageBox + exit 1
+ │
+ │  Step 1b — GPU acceleration (before QApplication)
+ │  gpu_accel = config.get("gpu_acceleration") == "yes"
+ │  if not gpu_accel:
+ │    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu"
+ │  QApplication.setAttribute(AA_ShareOpenGLContexts, True)   [Sprint 5D — B-128]
  │
  │  Step 2 — Create DatabaseStore
  │  store = DatabaseStore(data_dir)        # calls create_all() → creates notes.db if absent
@@ -1127,36 +1164,70 @@ Maps each requirement group to the implementing module, class, and test coverage
 
 ## 8. Directory Structure
 
-**Current state (as of 2026-05-11):** Sprint 0 source deleted. `src/`, `tests/`, `plugins/`, `pytest.ini`, and `test_all.py` were removed. The planned Sprint 1 target structure is described in §2 (UML Package Diagram). `[LOG 05-11]`
+**Current state (as of Sprint 5D — 2026-06-08):**
 
 ```
 AstraNotes/
-├── AI Working Log/
-│   ├── working-log-2026-04-08.md
-│   ├── working-log-2026-04-15.md
-│   ├── working-log-2026-04-29.md
-│   ├── working-log-2026-05-04.md
-│   ├── working-log-2026-05-05.md
-│   └── working-log-2026-05-10.md
+├── AI Working Log/            (working logs per session)
 ├── Copilot/
 │   ├── Definition of Done.md
-│   ├── discussion-list.md
-│   └── Working Agreement.md
+│   ├── Plans/
+│   │   ├── sprint-5b-plan.md
+│   │   ├── sprint-6-plan.md
+│   │   └── gui-account-registration.md
+│   ├── Working Agreement.md
+│   └── discussion-list.md
+├── alembic/                   (local SQLite migrations)
+├── alembic_server/            (server PostgreSQL migrations)
 ├── docs/
-│   ├── ai-use-disclosure.md
-│   ├── bdd-testing.md
-│   ├── test-execution-evidence.md
-│   └── test-workflow.md
 ├── planning/
 │   ├── backlog.md
-│   ├── design.md               # This file
+│   ├── design.md
 │   ├── prd.md
 │   ├── requirements.md
-│   ├── sprint-zero-plan.md
 │   ├── traceability-metrics.md
 │   └── user-stories.md
-├── LICENSE
-├── README.md
+├── src/
+│   ├── cli.py
+│   ├── core/
+│   │   ├── note.py            (Note dataclass)
+│   │   ├── store.py           (DatabaseStore)
+│   │   ├── container.py       (ASTR binary envelope)
+│   │   ├── editor_protocol.py (EditorProtocol structural interface)
+│   │   ├── plugin_base.py     (PluginBase ABC, PluginRegistry)
+│   │   ├── plugin_context.py  (PluginContext restricted API)
+│   │   ├── plugin_security.py (AST scanner)
+│   │   ├── security.py        (EncryptionEngine, KeyManager)
+│   │   ├── auth.py            (AccountStore, SessionManager)
+│   │   ├── audit.py           (AuditLogger)
+│   │   ├── config.py          (ConfigStore)
+│   │   └── sync_client.py     (SyncClient)
+│   ├── desktop/
+│   │   ├── app_controller.py
+│   │   ├── main_window.py
+│   │   ├── note_editor.py     (NoteEditorWidget)
+│   │   ├── dialogs.py         (PassphraseDialog, etc.)
+│   │   ├── theme.py           (apply_theme, load_stylesheet)
+│   │   ├── settings_dialog.py
+│   │   ├── plugins_dialog.py
+│   │   ├── plugin_loader.py
+│   │   ├── plugin_consent_dialog.py
+│   │   ├── styles/
+│   │   │   ├── dark.qss
+│   │   │   ├── light.qss
+│   │   │   └── icons/
+│   │   └── sync/
+│   │       ├── __init__.py
+│   │       ├── worker.py      (SyncWorker)
+│   │       ├── merge_window.py
+│   │       └── account_dialog.py
+│   ├── plugins/
+│   │   ├── tiptap_plugin/
+│   │   ├── voice_plugin/
+│   │   └── video_plugin/
+│   └── server/
+├── tests/
+├── pyproject.toml
 └── requirements.txt
 ```
 

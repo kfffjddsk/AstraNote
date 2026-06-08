@@ -32,7 +32,7 @@ Per-note opt-in encryption using AES-256-GCM with PBKDF2 key derivation.
 | R2.8 | Reject wrong passphrase and preserve data |
 | R2.9 | Sandbox binary storage: all note data treated as raw bitstream with length-prefixed framing `[4-byte header_length][JSON header][raw payload bytes]`. Header: title, timestamps, tags, format (MIME type), original_filename, size_bytes. Payload: raw content bytes. Entire blob encrypted with AES-256-GCM for encrypted notes; no metadata left in plaintext |
 | R2.10 | No default key; key manager required for encrypted operations |
-| R2.11 | Reject empty or whitespace-only passphrase; minimum 8 characters |
+| R2.11 | Reject empty or whitespace-only passphrase; no minimum length enforced at application level `[Sprint 5D — B-129]` |
 | R2.12 | Updating/deleting unencrypted notes must not corrupt co-stored encrypted notes |
 | R2.13 | Only routing fields (note_id, user_id, is_encrypted), crypto params (nonce, salt), listing fields (title, format), and payload_location stored unencrypted; all other fields inside the blob |
 | R2.14 | `reencrypt <note_id>` command: prompt old passphrase, then new passphrase twice; re-encrypt the blob with the new key. If the note has a filesystem payload (>5 MB), the on-disk file is also re-encrypted with the new key |
@@ -63,7 +63,7 @@ Hook-based architecture for extending CLI behavior.
 | R4.3 | Plugins can register post-action hooks (e.g., `post_add_note`) |
 | R4.4 | Plugins can provide additional CLI commands |
 | R4.5 | Core security (CRUD and extension modules) immutable; plugin hook crashes caught and logged; plugin content never executed as code (no eval/exec) |
-| R4.6 | Discover and load plugins from `plugins/` directory on startup |
+| R4.6 | Discover and load plugins from `src/plugins/` (bundled) and the configured `plugin_dir` path (user-installed) on startup `[Sprint 5D — B-130]` |
 | R4.7 | Hook execution wrapped in try/except; plugin crash logged, does not kill the operation |
 | R4.8 | Duplicate plugin registration → skip with warning |
 | R4.9 | `overrides` field validated against override policy (R7) |
@@ -71,6 +71,9 @@ Hook-based architecture for extending CLI behavior.
 | R4.11 | Plugin manifest file (`plugin.json`) must be present in each plugin subdirectory; required fields: `plugin_id`, `name`, `version` (semver), `engines` (min AstraNotes version), `main` (entrypoint module path); validated with `jsonschema` at startup `[D-12]` |
 | R4.12 | `is_official` is server-assigned only; any manifest containing `is_official` must be rejected; user-installed (sideloaded) plugins always default to `is_official = False` regardless of manifest content `[D-12]` |
 | R4.13 | Trust tier enforcement: `is_official = True` (server-approved) grants full `EditorProvider` + `PluginBase` API; `is_official = False` (user-installed) restricted to `EditorProvider` only — `PluginBase` hook registration blocked at `register_plugin()` time with warning `[D-12]` |
+| R4.14 | PluginContext restricted API — plugins receive a PluginContext object on initialize(); it is the only host-application object the plugin can access; direct store/config access outside PluginContext is prohibited |
+| R4.15 | PluginSecurity static scanner — before loading any user-installed plugin, run an AST import analysis; plugins importing forbidden modules (os, subprocess, socket, etc.) are rejected with a warning |
+| R4.16 | First-run consent — user-installed plugins require explicit consent via PluginConsentDialog before first activation; consent recorded in config; re-consent required if plugin version changes |
 
 ## R5: CLI Interface
 
@@ -127,7 +130,7 @@ Persistent settings module.
 |----|-------------|
 | R9.1 | Store settings at a fixed OS-standard path: `%APPDATA%\astranotes\config.json` (Windows) / `~/.config/astranotes/config.json` (Linux/macOS). Config is separate from `data_dir`; moving `--data-dir` does not move the config file. `data_dir` is a key inside the config file; `--data-dir` CLI flag overrides it at runtime. `[D-06 resolved 2026-05-11]` |
 | R9.2 | CLI commands: `config set`, `config get`, `config list`, `config reset` |
-| R9.3 | Known keys only: `default_encrypt` (yes/no), `passphrase_min_length` (int), `data_dir` (path), `plugin_dir` (path), `allowed_plugins` (list), `theme` (light/dark), `font_size` (int), `font_family` (str — empty = system default), `accent_color` (purple/pink/cyan/green/orange), `word_wrap` (yes/no), `close_behavior` (ask/minimize/exit), `security_level` (high/session), `sync_server_url` (URL), `sync_auto_interval` (int, seconds, 0 = disabled); free-form keys rejected |
+| R9.3 | Known keys only: `default_encrypt` (yes/no), `data_dir` (path), `plugin_dir` (path), `allowed_plugins` (list), `theme` (light/dark), `font_size` (int), `gpu_acceleration` (yes/no), `font_family` (str — empty = system default), `accent_color` (purple/pink/cyan/green/orange), `word_wrap` (yes/no), `close_behavior` (ask/minimize/exit), `security_level` (high/session), `sync_server_url` (URL), `sync_auto_interval` (int, seconds, 0 = disabled); free-form keys rejected |
 | R9.4 | Invalid value type for a key → error with expected type |
 | R9.5 | Config file missing → all defaults used, file created on first `config set` |
 | R9.6 | `DATABASE_URL` never stored in config; accepted from environment variable only |

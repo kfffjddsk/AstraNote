@@ -1,7 +1,7 @@
 # AstraNotes — Product Requirements Document
 
-**Version:** 1.3  `[LOG 05-21]`  
-**Date:** May 21, 2026  
+**Version:** 1.4  `[LOG 05-21]`  
+**Date:** June 8, 2026  
 **Status:** Draft — under review  
 **Owner:** Human team member  
 **AI Partner:** Astra (GitHub Copilot)
@@ -65,7 +65,7 @@ Existing tools either expose note content to third-party services, provide no pe
 
 - Opt-in AES-256-GCM encryption with PBKDF2 key derivation via `--encrypt yes`. `[REQ R2.1]` `[REQ R2.17]`
 - Passphrase prompted twice on creation (confirmation); mismatch → retry or abort. `[REQ R2.2]` `[BL B-32]`
-- Minimum passphrase length: 8 characters; empty or whitespace-only passphrase rejected. `[REQ R2.11]` `[BL B-34]`
+- Empty or whitespace-only passphrase rejected; no minimum length enforced at application level `[REQ R2.11]` `[Sprint 5D — B-129]`
 - **Sandbox binary blob model:** length-prefixed framing `[4-byte header_length][JSON header][raw payload bytes]`. Header contains metadata (title, timestamps, tags, format MIME type, original_filename, size_bytes). For encrypted notes, the entire blob is AES-256-GCM ciphertext — no sensitive metadata left in plaintext. `[REQ R2.9]` `[LOG 04-15]`
 - Passphrase required for all read, write, and delete operations on encrypted notes. `[REQ R2.3–R2.5]`
 - Unencrypted note operations never prompt for passphrase. `[REQ R2.6]`
@@ -128,6 +128,8 @@ Existing tools either expose note content to third-party services, provide no pe
 - Plugins discovered and loaded from `plugins/` directory on startup. `[REQ R4.6]` `[BL B-37]`
 - Plugins may register post-action hooks (e.g., `post_add_note`) and provide additional CLI commands. `[REQ R4.3]` `[REQ R4.4]`
 - Allowlist enforced via `allowed_plugins` key in config; unlisted or unsigned plugins rejected with warning. `[REQ R4.10]` `[BL B-69]`
+- Plugins receive a `PluginContext` restricted API object on initialization; no direct host-object access. `[REQ R4.14]` `[Sprint 5D — B-123]`
+- User-installed plugins scanned with `PluginSecurity` AST scanner before consent; plugins importing forbidden system modules rejected. `[REQ R4.15]` `[Sprint 5D — B-124]`
 - Plugins receive read-only note copies; `exec`/`eval` and raw DB access prohibited. `[REQ R4.5]` `[REQ R15.7]` `[BL B-56]`
 - Hook crashes isolated with try/except; logged, never propagate to the operation. `[REQ R4.7]` `[BL B-38]`
 - Duplicate plugin registration → skip with warning. `[REQ R4.8]`
@@ -157,7 +159,7 @@ Existing tools either expose note content to third-party services, provide no pe
 > Source: `[REQ R9]` `[US-7]` `[BL B-26, B-64]` `[LOG 04-15]`
 
 - Settings stored at a fixed OS-standard path: `%APPDATA%\astranotes\config.json` (Windows) / `~/.config/astranotes/config.json` (Linux/macOS). Config is separate from `data_dir`; `--data-dir` overrides `config["data_dir"]` at runtime but does not move the config file. `[REQ R9.1]` `[D-06 resolved 2026-05-11]`
-- Known keys only: `default_encrypt`, `passphrase_min_length`, `data_dir`, `plugin_dir`, `allowed_plugins`, `theme`, `font_size`, `sync_server_url`, `sync_auto_interval`; free-form keys rejected. `[REQ R9.3]`
+- Known keys only: `default_encrypt`, `data_dir`, `plugin_dir`, `allowed_plugins`, `theme`, `font_size`, `gpu_acceleration`, `font_family`, `accent_color`, `word_wrap`, `close_behavior`, `security_level`, `sync_server_url`, `sync_auto_interval`; free-form keys rejected. `[REQ R9.3]`
 - CLI: `config set / get / list / reset`. `[REQ R9.2]`
 - `DATABASE_URL` accepted from environment variable only; never stored in config. `[REQ R9.6]` `[BL B-64]`
 - Config file missing → all defaults used; file created on first `config set`. `[REQ R9.5]`
