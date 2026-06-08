@@ -1303,10 +1303,18 @@ class MainWindow(QMainWindow):
             and self._current_note.id != note_id
         ):
             self._cached_passphrase = None
-        self._current_note = note
         editor = self._get_or_open_tab(note)
         if editor is None:
+            # Cannot open this note — revert the list highlight to the previous item
+            # so the unsupported note does not appear selected.
+            self._note_list.blockSignals(True)
+            if previous is not None:
+                self._note_list.setCurrentItem(previous)
+            else:
+                self._note_list.clearSelection()
+            self._note_list.blockSignals(False)
             return
+        self._current_note = note
         decrypted_content: Optional[str] = None
         if note.encrypted and self._cached_passphrase:
             result = self._try_decrypt_note(note)
