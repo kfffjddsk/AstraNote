@@ -1,9 +1,7 @@
 """Configuration module for AstraNotes.
 
-Settings stored at the OS-standard path:
-  Windows : ``%APPDATA%\\AstraNotes\\config.json``
-  macOS   : ``~/Library/Application Support/AstraNotes/config.json``
-  Linux   : ``$XDG_CONFIG_HOME/AstraNotes/config.json``
+Settings stored inside the project folder:
+  ``<project_root>/.astranotes/config.json``
 
 Config is separate from ``data_dir``; moving ``--data-dir`` does not move
 the config file.  ``DATABASE_URL`` is never stored here — accepted from

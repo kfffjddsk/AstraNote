@@ -59,7 +59,7 @@ python -m src.cli gui
 
 The GUI opens a multi-tab note editor with support for rich text (Tiptap), voice notes, and video notes. All notes are stored locally in an encrypted SQLite database.
 
-**First launch** creates a data directory at `~/.astranotes` (Windows: `%USERPROFILE%\.astranotes`). You can override this with `--data-dir`.
+**First launch** creates a `.astranotes/` directory inside the project folder. You can override this with `--data-dir` or the `ASTRANOTES_DATA_DIR` environment variable.
 
 ### CLI Quick Start
 
@@ -124,11 +124,9 @@ In the GUI, use **Account → Connect to Sync Server** to log in, then the toolb
 
 All settings are stored in a JSON file at the OS-standard config location:
 
-| Platform | Path |
+| Location | Path |
 |----------|------|
-| Windows | `%APPDATA%\AstraNotes\config.json` |
-| macOS | `~/Library/Application Support/AstraNotes/config.json` |
-| Linux | `$XDG_CONFIG_HOME/AstraNotes/config.json` |
+| All platforms | `<project_root>/.astranotes/config.json` |
 
 Manage settings with the `config` command:
 
@@ -148,7 +146,7 @@ python -m src.cli config reset theme       # restore default
 | `font_family` | `str` | *(system)* | Editor font family |
 | `accent_color` | `str` | `purple` | Accent colour for buttons and highlights |
 | `word_wrap` | `str` | `yes` | `yes` / `no` |
-| `data_dir` | `str` | `~/.astranotes` | Notes database location |
+| `data_dir` | `str` | `.astranotes/` *(project root)* | Notes database location |
 | `default_encrypt` | `str` | `no` | Encrypt new notes by default: `yes` / `no` |
 | `security_level` | `str` | `high` | `high` clears cached passphrase when switching notes |
 | `auto_login` | `str` | `no` | Restore the last session automatically on launch |

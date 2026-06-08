@@ -6,7 +6,7 @@ Commands : add, get, list, update, delete, reencrypt
            config set/get/list/reset
            audit
 Global   : --data-dir (validated: must exist or be creatable, must be writable)
-           ASTRANOTES_DATA_DIR env var as fallback; default is ~/.astranotes
+           ASTRANOTES_DATA_DIR env var as fallback; default is .astranotes/ inside the project folder
 
 Design notes:
 - All string inputs are checked for null bytes and control characters at this
@@ -190,7 +190,7 @@ def _validate_data_dir(
     callback=_validate_data_dir,
     is_eager=True,
     expose_value=True,
-    help="Directory for notes.db.  Defaults to ~/.astranotes.",
+    help="Directory for notes.db.  Defaults to .astranotes/ inside the project folder.",
 )
 @click.pass_context
 def cli(ctx: click.Context, data_dir: Path) -> None:
