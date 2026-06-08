@@ -15,6 +15,7 @@ venv/
 
 # Editors
 .vscode/
+.claude/
 .idea/
 *.sublime-workspace
 *.sublime-project
@@ -35,8 +36,13 @@ dist/
 .cache
 .pytest_cache/
 
-# coverage (data file + HTML report — all under coverage/)
-.coverage/
+# type checkers
+.mypy_cache/
+
+# coverage
+.coverage
+.coverage.*
+htmlcov/
 
 # secret files
 .env
@@ -52,3 +58,6 @@ local.env
 
 # Per-test debug databases (conftest.py tmp_store isolation)
 .test_db/
+
+# Node.js / bundler deps
+node_modules/
