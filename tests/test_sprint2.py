@@ -5,8 +5,7 @@ Coverage:
                      [BL B-45, B-60, B-96]
   §2  Authentication and rate limiting  [BL B-58]
   §3  SessionManager — create, load, expiry, permissions, delete  [BL B-59, B-75]
-  §4  Hybrid storage — small notes inline, large encrypted notes on filesystem
-                       [BL B-49] [REQ R14.8]
+  §4  Container storage — all notes stored as Container blobs  [design §5.3]
   §5  ENOSPC / disk-full error handling  [BL B-67]
   §6  DatabaseStore account_id — add with account, list scoping,
                                   disassociate_account, associate_anonymous_notes,
@@ -52,11 +51,11 @@ from src.core.auth import (
     validate_username,
 )
 from src.core.blob_codec import BlobCodec
+from src.core.container import Container, FLAG_ENCRYPTED
 from src.core.notes import (
     DatabaseStore,
     DiskFullError,
     Note,
-    _FILESYSTEM_THRESHOLD_BYTES,
 )
 from src.core.security import KeyManager
 
@@ -73,19 +72,9 @@ _RUNNER = CliRunner()
 def _make_encrypted_blob(content: str, passphrase: str = _TEST_PASSPHRASE) -> bytes:
     km = KeyManager(passphrase, iterations=_TEST_ITERATIONS)
     engine = km.get_engine()
-    header = {"title": "enc", "format": "text/plain"}
-    raw = BlobCodec.encode(header, content.encode("utf-8"))
-    return BlobCodec.encrypt(raw, engine)
-
-
-def _make_large_encrypted_blob(size_mb: float = 6) -> bytes:
-    """Return an encrypted blob that exceeds the 5 MiB threshold."""
-    payload = b"X" * int(size_mb * 1024 * 1024)
-    km = KeyManager(_TEST_PASSPHRASE, iterations=_TEST_ITERATIONS)
-    engine = km.get_engine()
-    header = {"title": "big", "format": "application/octet-stream"}
-    raw = BlobCodec.encode(header, payload)
-    return BlobCodec.encrypt(raw, engine)
+    inner = json.dumps({"title": "enc", "content": content}, ensure_ascii=False).encode()
+    raw_container = Container.frame(inner, "application/x-astranotes-text", FLAG_ENCRYPTED)
+    return BlobCodec.encrypt(raw_container, engine)
 
 
 # ===========================================================================
@@ -329,89 +318,79 @@ class TestSessionManager:
 # ===========================================================================
 
 
-class TestHybridStorage:
-    """[BL B-49] [REQ R14.8]"""
+class TestContainerStorage:
+    """All notes stored as Container blobs in a single column.  [design §5.3]"""
 
-    def test_small_encrypted_note_stored_inline(self, tmp_path: Path) -> None:
+    def test_encrypted_note_blob_round_trips(self, tmp_path: Path) -> None:
+        """Encrypted blob is stored and retrieved unchanged."""
         store = DatabaseStore(tmp_path)
-        blob = _make_encrypted_blob("small content")
-        assert len(blob) < _FILESYSTEM_THRESHOLD_BYTES
-        note = Note.create("[Encrypted Note]", "", encrypted=True, blob=blob)
-        store.add(note)
-        # Filesystem payload directory should be empty
-        files_dir = tmp_path / "files"
-        assert list(files_dir.iterdir()) == []
-
-    def test_large_encrypted_note_stored_on_filesystem(self, tmp_path: Path) -> None:
-        store = DatabaseStore(tmp_path)
-        blob = _make_large_encrypted_blob(6)  # 6 MiB
-        assert len(blob) > _FILESYSTEM_THRESHOLD_BYTES
-        note = Note.create("[Encrypted Note]", "", encrypted=True, blob=blob)
-        store.add(note)
-        # File should exist under files/
-        payload_file = tmp_path / "files" / f"{note.id}.bin"
-        assert payload_file.exists()
-        assert payload_file.read_bytes() == blob
-
-    def test_large_encrypted_note_db_row_has_filesystem_location(
-        self, tmp_path: Path
-    ) -> None:
-        store = DatabaseStore(tmp_path)
-        blob = _make_large_encrypted_blob(6)
-        note = Note.create("[Encrypted Note]", "", encrypted=True, blob=blob)
-        store.add(note)
-        # Check DB row directly
-        from src.core.notes import _NoteRow
-        with store._Session() as session:
-            row = session.get(_NoteRow, note.id)
-            assert row is not None
-            assert row.payload_location == "filesystem"
-            assert row.encrypted_blob is None  # payload is on disk, not in DB
-
-    def test_get_filesystem_note_loads_blob_from_file(self, tmp_path: Path) -> None:
-        store = DatabaseStore(tmp_path)
-        blob = _make_large_encrypted_blob(6)
+        blob = _make_encrypted_blob("hello world")
         note = Note.create("[Encrypted Note]", "", encrypted=True, blob=blob)
         store.add(note)
         retrieved = store.get(note.id)
         assert retrieved is not None
         assert retrieved.blob == blob
 
-    def test_delete_filesystem_note_removes_payload_file(self, tmp_path: Path) -> None:
-        """Orphan cleanup on delete.  [BL B-68]"""
+    def test_plaintext_note_content_round_trips(self, tmp_path: Path) -> None:
+        """Plain note content survives add → get via container framing."""
         store = DatabaseStore(tmp_path)
-        blob = _make_large_encrypted_blob(6)
+        note = Note.create("My Note", "Hello, container!")
+        store.add(note)
+        retrieved = store.get(note.id)
+        assert retrieved is not None
+        assert retrieved.content == "Hello, container!"
+
+    def test_large_encrypted_note_stored_inline(self, tmp_path: Path) -> None:
+        """Blobs of any size go directly into the container column (no files/)."""
+        store = DatabaseStore(tmp_path)
+        big_payload = b"X" * (6 * 1024 * 1024)
+        km = KeyManager(_TEST_PASSPHRASE, iterations=_TEST_ITERATIONS)
+        inner = Container.frame(big_payload, "application/octet-stream", FLAG_ENCRYPTED)
+        blob = BlobCodec.encrypt(inner, km.get_engine())
         note = Note.create("[Encrypted Note]", "", encrypted=True, blob=blob)
         store.add(note)
-        payload_file = tmp_path / "files" / f"{note.id}.bin"
-        assert payload_file.exists()
-        store.delete(note.id)
-        assert not payload_file.exists()
+        retrieved = store.get(note.id)
+        assert retrieved is not None
+        assert retrieved.blob == blob
 
-    def test_delete_inline_note_no_filesystem_side_effects(
+    def test_no_filesystem_payload_directory_created(self, tmp_path: Path) -> None:
+        """DatabaseStore.__init__ no longer creates a files/ directory."""
+        DatabaseStore(tmp_path)
+        assert not (tmp_path / "files").exists()
+
+    def test_delete_encrypted_note_no_filesystem_side_effects(
         self, tmp_path: Path
     ) -> None:
+        """delete() does not touch the filesystem beyond the DB."""
         store = DatabaseStore(tmp_path)
         blob = _make_encrypted_blob("small")
         note = Note.create("[Encrypted Note]", "", encrypted=True, blob=blob)
         store.add(note)
-        store.delete(note.id)  # must not raise even though there's no file
+        store.delete(note.id)
+        assert store.get(note.id) is None
 
-    def test_large_unencrypted_note_always_stored_inline(
-        self, tmp_path: Path
-    ) -> None:
-        """No plaintext files ever written to disk.  [REQ R14.8]"""
+    def test_large_plaintext_note_always_stored_inline(self, tmp_path: Path) -> None:
+        """Plain notes of any size stay in the DB container column."""
         store = DatabaseStore(tmp_path)
-        big_content = "A" * (6 * 1024 * 1024)  # 6 MiB
+        big_content = "A" * (6 * 1024 * 1024)
         note = Note.create("Big Plain Note", big_content)
         store.add(note)
-        files_dir = tmp_path / "files"
-        assert list(files_dir.iterdir()) == []
+        retrieved = store.get(note.id)
+        assert retrieved is not None
+        assert retrieved.content == big_content
 
-    def test_files_directory_created_on_init(self, tmp_path: Path) -> None:
-        """files/ directory must exist after DatabaseStore init.  [BL B-77]"""
-        DatabaseStore(tmp_path)
-        assert (tmp_path / "files").is_dir()
+    def test_container_column_holds_framed_bytes(self, tmp_path: Path) -> None:
+        """DB row container column holds valid Container bytes for plain notes."""
+        from src.core.container import Container as C, MAGIC
+        from src.core.notes import _NoteRow
+        store = DatabaseStore(tmp_path)
+        note = Note.create("Test", "body text")
+        store.add(note)
+        with store._Session() as session:
+            row = session.get(_NoteRow, note.id)
+            assert row is not None
+            assert row.container is not None
+            assert row.container[:4] == MAGIC
 
 
 # ===========================================================================
@@ -421,18 +400,6 @@ class TestHybridStorage:
 
 class TestEnospcHandling:
     """[BL B-67] [REQ R3.8, R14.12]"""
-
-    def test_enospc_on_filesystem_payload_write_raises_disk_full_error(
-        self, tmp_path: Path
-    ) -> None:
-        store = DatabaseStore(tmp_path)
-        blob = _make_large_encrypted_blob(6)
-        note = Note.create("[Encrypted Note]", "", encrypted=True, blob=blob)
-
-        enospc = OSError(errno.ENOSPC, "No space left on device")
-        with patch.object(Path, "write_bytes", side_effect=enospc):
-            with pytest.raises(DiskFullError):
-                store.add(note)
 
     def test_disk_full_error_is_oserror_subclass(self) -> None:
         err = DiskFullError(errno.ENOSPC, "full")
@@ -1088,21 +1055,11 @@ class TestFlatDataDirectoryLayout:
         DatabaseStore(tmp_path)
         assert (tmp_path / "notes.db").is_file()
 
-    def test_files_dir_at_root_of_data_dir(self, tmp_path: Path) -> None:
-        DatabaseStore(tmp_path)
-        assert (tmp_path / "files").is_dir()
-
     def test_no_per_user_subdirectory_created(self, tmp_path: Path) -> None:
         """Flat layout: no per-user subdirectories on the local device."""
         store = DatabaseStore(tmp_path)
-        blob = _make_large_encrypted_blob(6)
-        note = Note.create("[Encrypted Note]", "", encrypted=True, blob=blob)
+        note = Note.create("Note", "content")
         store.add(note, account_id="acc-001")
-
-        # Confirm file is in flat files/ not in users/<id>/files/
-        expected_path = tmp_path / "files" / f"{note.id}.bin"
-        assert expected_path.exists()
-        # No per-user directory
         assert not (tmp_path / "users").exists()
 
     def test_session_file_at_root_of_data_dir(self, tmp_path: Path) -> None:
@@ -1115,39 +1072,62 @@ class TestFlatDataDirectoryLayout:
 # ===========================================================================
 
 
-class TestAlembicSprint2Migration:
-    """[BL B-65]"""
+class TestAlembicMigrations:
+    """Verify the full migration chain is intact.  [BL B-65]"""
 
-    def test_migration_file_exists(self) -> None:
-        migration_file = Path(
-            "alembic/versions/3b7c9f2d8a1e_sprint_two_accounts.py"
-        )
-        assert migration_file.exists()
+    def test_sprint2_migration_file_exists(self) -> None:
+        assert Path("alembic/versions/3b7c9f2d8a1e_sprint_two_accounts.py").exists()
 
-    def test_migration_has_correct_down_revision(self) -> None:
+    def test_sprint2_migration_revision_chain(self) -> None:
         import importlib.util
         spec = importlib.util.spec_from_file_location(
             "sprint2_migration",
             "alembic/versions/3b7c9f2d8a1e_sprint_two_accounts.py",
         )
-        assert spec is not None, "Failed to load migration module spec"
+        assert spec and spec.loader
         module = importlib.util.module_from_spec(spec)
-        assert spec.loader is not None, "Failed to load migration module loader"
         spec.loader.exec_module(module)
         assert module.down_revision == "e2f2634ce4f7"
         assert module.revision == "3b7c9f2d8a1e"
+
+    def test_sprint5_container_migration_file_exists(self) -> None:
+        assert Path(
+            "alembic/versions/c7d2a8f1b9e4_sprint_five_container_notes.py"
+        ).exists()
+
+    def test_sprint5_container_migration_revision_chain(self) -> None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "sprint5_migration",
+            "alembic/versions/c7d2a8f1b9e4_sprint_five_container_notes.py",
+        )
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        assert module.down_revision == "3b7c9f2d8a1e"
+        assert module.revision == "c7d2a8f1b9e4"
 
     def test_accounts_table_created_by_account_store_init(
         self, tmp_path: Path
     ) -> None:
         """AccountStore.create_all() must create the accounts table in SQLite."""
         AccountStore(tmp_path)
-        import sqlalchemy as sa
         from sqlalchemy import URL as _U, create_engine, inspect as _inspect
         url = _U.create("sqlite", database=str(tmp_path / "notes.db"))
         engine = create_engine(url)
         inspector = _inspect(engine)
         assert "accounts" in inspector.get_table_names()
+
+    def test_notes_table_has_container_column(self, tmp_path: Path) -> None:
+        """DatabaseStore.create_all() must produce a notes table with container column."""
+        DatabaseStore(tmp_path)
+        from sqlalchemy import URL as _U, create_engine, inspect as _inspect
+        url = _U.create("sqlite", database=str(tmp_path / "notes.db"))
+        engine = create_engine(url)
+        cols = {c["name"] for c in _inspect(engine).get_columns("notes")}
+        assert "container" in cols
+        for removed in ("content", "encrypted_blob", "payload_location"):
+            assert removed not in cols
 
 
 # ===========================================================================
@@ -1320,57 +1300,25 @@ class TestBranchCoverageGaps:
             _execute_with_retry(_bad)
 
     # ------------------------------------------------------------------
-    # notes.py:326 — non-ENOSPC OSError on write_bytes is re-raised unchanged
+    # store.py — Container validation error at save time
     # ------------------------------------------------------------------
 
-    def test_add_large_encrypted_non_enospc_oserror_propagates(
+    def test_plaintext_content_survives_container_round_trip(
         self, tmp_path: Path
     ) -> None:
-        """An OSError that is NOT ENOSPC on write_bytes is re-raised, not
-        wrapped in DiskFullError."""
-        import errno as _errno
+        """Plain note content is correctly framed and unframed via the store."""
         store = DatabaseStore(tmp_path)
-        blob = _make_large_encrypted_blob(6)
-        note = Note.create("[Encrypted Note]", "", encrypted=True, blob=blob)
-
-        with patch.object(Path, "write_bytes",
-                          side_effect=OSError(_errno.EIO, "I/O error")):
-            with pytest.raises(OSError) as exc_info:
-                store.add(note)
-        assert not isinstance(exc_info.value, DiskFullError)
-
-    # ------------------------------------------------------------------
-    # notes.py:372-373 — get() when filesystem payload file is missing
-    # ------------------------------------------------------------------
-
-    def test_get_filesystem_note_missing_payload_returns_note_with_none_blob(
-        self, tmp_path: Path
-    ) -> None:
-        """If the payload file is gone, get() returns the Note with blob=None."""
-        store = DatabaseStore(tmp_path)
-        blob = _make_large_encrypted_blob(6)
-        note = Note.create("[Encrypted Note]", "", encrypted=True, blob=blob)
+        note = Note.create("Title", "unique content string")
         store.add(note)
-        (tmp_path / "files" / f"{note.id}.bin").unlink()
-
         retrieved = store.get(note.id)
         assert retrieved is not None
-        assert retrieved.blob is None  # missing file → blob stays None
+        assert retrieved.content == "unique content string"
 
-    # ------------------------------------------------------------------
-    # notes.py:453-454 — delete() when payload file is already gone
-    # ------------------------------------------------------------------
-
-    def test_delete_filesystem_note_tolerates_already_removed_payload(
-        self, tmp_path: Path
-    ) -> None:
-        """delete() must not raise if the payload file was already removed.
-        [BL B-68] — idempotent clean-up."""
+    def test_delete_leaves_no_orphan_state(self, tmp_path: Path) -> None:
+        """delete() removes the note cleanly — no orphaned rows or files."""
         store = DatabaseStore(tmp_path)
-        blob = _make_large_encrypted_blob(6)
+        blob = _make_encrypted_blob("body")
         note = Note.create("[Encrypted Note]", "", encrypted=True, blob=blob)
         store.add(note)
-        (tmp_path / "files" / f"{note.id}.bin").unlink()
-
-        store.delete(note.id)  # must not raise FileNotFoundError
+        store.delete(note.id)
         assert store.get(note.id) is None

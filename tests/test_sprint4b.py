@@ -256,7 +256,7 @@ class TestRichTextEditor:
     def test_editor_has_bold_btn(self):
         """§3.1  NoteEditorWidget exposes _bold_btn (QToolButton, checkable)."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         assert hasattr(w, "_bold_btn")
         assert w._bold_btn.isCheckable()
@@ -264,7 +264,7 @@ class TestRichTextEditor:
     def test_editor_has_italic_btn(self):
         """§3.2  NoteEditorWidget exposes _italic_btn (QToolButton, checkable)."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         assert hasattr(w, "_italic_btn")
         assert w._italic_btn.isCheckable()
@@ -272,7 +272,7 @@ class TestRichTextEditor:
     def test_editor_has_underline_btn(self):
         """§3.3  NoteEditorWidget exposes _underline_btn (QToolButton, checkable)."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         assert hasattr(w, "_underline_btn")
         assert w._underline_btn.isCheckable()
@@ -280,14 +280,14 @@ class TestRichTextEditor:
     def test_editor_has_font_size_combo(self):
         """§3.4  NoteEditorWidget exposes _font_size_combo (QComboBox)."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         assert hasattr(w, "_font_size_combo")
 
     def test_font_size_combo_has_numeric_options(self):
         """§3.5  _font_size_combo contains numeric size items."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         texts = [w._font_size_combo.itemText(i) for i in range(w._font_size_combo.count())]
         assert "12" in texts
@@ -296,7 +296,7 @@ class TestRichTextEditor:
     def test_get_html_content_returns_html(self):
         """§3.6  get_html_content() returns a non-empty HTML string."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         w._content_edit.setPlainText("Hello World")
         html = w.get_html_content()
@@ -306,7 +306,7 @@ class TestRichTextEditor:
     def test_get_content_still_returns_plain_text(self):
         """§3.7  get_content() returns plain text (backward compat)."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         w._content_edit.setPlainText("plain text")
         assert w.get_content() == "plain text"
@@ -314,7 +314,7 @@ class TestRichTextEditor:
     def test_apply_font_size(self):
         """§3.8  apply_font_size() sets font on content editor without error."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         w.apply_font_size(18)
         assert w._content_edit.font().pointSize() == 18
@@ -322,14 +322,14 @@ class TestRichTextEditor:
     def test_content_edit_accepts_rich_text(self):
         """§3.9  _content_edit.acceptRichText() is True."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         assert w._content_edit.acceptRichText() is True
 
     def test_editor_formatting_toolbar_exists(self):
         """§3.10  NoteEditorWidget has a _fmt_bar (QToolBar)."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         from PySide6.QtWidgets import QToolBar
         w = NoteEditorWidget()
         assert hasattr(w, "_fmt_bar")
@@ -361,11 +361,11 @@ class TestTabBar:
         assert w._right_stack.currentIndex() == 0
 
     def test_initial_editor_assigned(self, tmp_path):
-        """§4.3  MainWindow._editor is set immediately after construction."""
-        from src.desktop.main_window import NoteEditorWidget
+        """§4.3  MainWindow._editor is a PluginEditorHost immediately after construction."""
+        from src.desktop.note_editor import PluginEditorHost
         w, _, _ = _make_window(tmp_path)
         assert hasattr(w, "_editor")
-        assert isinstance(w._editor, NoteEditorWidget)
+        assert isinstance(w._editor, PluginEditorHost)
 
     def test_new_note_opens_new_tab(self, tmp_path):
         """§4.4  _on_new_note() increases tab count by one."""
@@ -417,6 +417,34 @@ class TestTabBar:
         assert w._tab_widget.count() == 0
         assert w._right_stack.currentIndex() == 0
 
+    def test_close_active_tab_returns_to_previous(self, tmp_path):
+        """§4.9b  Closing the active tab returns to the previously-viewed tab.
+
+        Regression: Qt's default jumps to the right neighbour — "the note under
+        it" in the list — which is surprising (notably after Save).  We return to
+        the most-recently-used remaining tab instead.
+        """
+        from PySide6.QtCore import Qt
+        from src.core.notes import Note
+        w, store, _ = _make_window(tmp_path)
+        ids = []
+        for i in range(3):
+            note = Note.create(f"Note {i}", f"content {i}")
+            store.add(note)
+            ids.append(note.id)
+            w.populate_note_list()
+            for r in range(w._note_list.count()):
+                it = w._note_list.item(r)
+                if it and it.data(Qt.ItemDataRole.UserRole) == note.id:
+                    w._on_note_selected(it, None)
+                    break
+        # Viewing order ended on Note 2; jump back to Note 0 (now most recent
+        # before we close it).  Closing Note 0 should return to Note 2 — where we
+        # were — not Note 1, the note positionally under it.
+        w._tab_widget.setCurrentWidget(w._note_editors[ids[0]])
+        w._on_tab_close_requested(w._tab_widget.currentIndex())
+        assert w._tab_widget.currentWidget() is w._note_editors[ids[2]]
+
     def test_note_editors_dict_exists(self, tmp_path):
         """§4.10  MainWindow has _note_editors dict for tracking open tabs."""
         w, _, _ = _make_window(tmp_path)
@@ -449,7 +477,7 @@ class TestAliasInput:
     def test_title_row_always_visible(self):
         """§5.1  _title_row stays visible regardless of encrypt state."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         assert not w._title_row.isHidden()
         w._encrypt_check.setChecked(True)
@@ -458,7 +486,7 @@ class TestAliasInput:
     def test_title_row_visible_after_encrypt_toggle(self):
         """§5.2  _title_row remains visible after toggling encrypt on/off."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         w._encrypt_check.setChecked(True)
         w._encrypt_check.setChecked(False)
@@ -467,7 +495,7 @@ class TestAliasInput:
     def test_get_title_returns_title_edit(self):
         """§5.3  get_title() always reads _title_edit, not a separate alias field."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         w._title_edit.setText("Real Title")
         assert w.get_title() == "Real Title"
@@ -475,7 +503,7 @@ class TestAliasInput:
     def test_get_alias_equals_get_title(self):
         """§5.4  get_alias() returns the same value as get_title()."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         w._title_edit.setText("My Note")
         assert w.get_alias() == w.get_title()
@@ -519,7 +547,7 @@ class TestAliasInput:
     def test_load_encrypted_note_sets_title(self):
         """§5.9  load() with an encrypted note shows the alias in _title_edit."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         note = Note.create("My Alias", "x", encrypted=True, blob=b"fake")
         w = NoteEditorWidget()
         w.load(note)
@@ -538,14 +566,14 @@ class TestUnlockButton:
     def test_unlock_btn_hidden_initially(self):
         """§6.1  _unlock_btn is hidden when editor is freshly created."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         assert not w._unlock_btn.isVisible()
 
     def test_unlock_btn_exists(self):
         """§6.2  NoteEditorWidget exposes _unlock_btn (QPushButton)."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         from PySide6.QtWidgets import QPushButton
         w = NoteEditorWidget()
         assert hasattr(w, "_unlock_btn")
@@ -554,7 +582,7 @@ class TestUnlockButton:
     def test_unlock_btn_shown_on_encrypted_placeholder(self):
         """§6.3  show_encrypted_placeholder() makes _unlock_btn visible."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         w.show_encrypted_placeholder()
         assert not w._unlock_btn.isHidden()
@@ -562,7 +590,7 @@ class TestUnlockButton:
     def test_load_encrypted_without_content_shows_unlock_btn(self):
         """§6.4  load() for encrypted note without decrypted_content shows unlock_btn."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         note = Note.create("Locked", "x", encrypted=True, blob=b"blob")
         w = NoteEditorWidget()
         w.load(note)
@@ -571,7 +599,7 @@ class TestUnlockButton:
     def test_load_encrypted_with_content_hides_unlock_btn(self):
         """§6.5  load() for encrypted note with decrypted_content hides unlock_btn."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         note = Note.create("Unlocked", "x", encrypted=True, blob=b"blob")
         w = NoteEditorWidget()
         w.load(note, decrypted_content="the secret")
@@ -580,7 +608,7 @@ class TestUnlockButton:
     def test_unlock_btn_emits_unlock_requested(self):
         """§6.6  Clicking _unlock_btn emits the unlock_requested signal."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         received = []
         w.unlock_requested.connect(lambda: received.append(True))
@@ -590,14 +618,14 @@ class TestUnlockButton:
     def test_unlock_requested_signal_exists(self):
         """§6.7  NoteEditorWidget has unlock_requested Signal attribute."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         assert hasattr(w, "unlock_requested")
 
     def test_clear_hides_unlock_btn(self):
         """§6.8  clear() hides the unlock button."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         w.show_encrypted_placeholder()
         w.clear()

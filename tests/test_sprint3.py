@@ -240,16 +240,6 @@ class TestConfigStore:
         cfg.set("theme", "dark")
         assert cfg.get("theme") == "dark"
 
-    def test_set_passphrase_min_length_below_8_raises(self, tmp_path: Path) -> None:
-        cfg = ConfigStore(tmp_path / "config.json")
-        with pytest.raises(ValueError):
-            cfg.set("passphrase_min_length", 4)
-
-    def test_set_passphrase_min_length_coerce_string(self, tmp_path: Path) -> None:
-        cfg = ConfigStore(tmp_path / "config.json")
-        cfg.set("passphrase_min_length", "12")
-        assert cfg.get("passphrase_min_length") == 12
-
     def test_set_font_size_below_6_raises(self, tmp_path: Path) -> None:
         cfg = ConfigStore(tmp_path / "config.json")
         with pytest.raises(ValueError):

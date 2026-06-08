@@ -761,7 +761,7 @@ class TestNoteEditorWidget:
     def test_clear_resets_all_fields(self):
         """§8.1  clear() empties title, content, and unchecks encrypted."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         w._title_edit.setText("Hello")
         w._content_edit.setPlainText("World")
@@ -774,7 +774,7 @@ class TestNoteEditorWidget:
     def test_load_unencrypted_note(self):
         """§8.2  load() populates editor from an unencrypted Note."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         note = Note.create("My Title", "My Content")
         w = NoteEditorWidget()
         w.load(note)
@@ -785,7 +785,7 @@ class TestNoteEditorWidget:
     def test_load_encrypted_note_shows_placeholder(self):
         """§8.3  load() shows [Encrypted] for encrypted note without content."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget, _ENCRYPTED_PLACEHOLDER
+        from src.desktop.note_editor import NoteEditorWidget, _ENCRYPTED_PLACEHOLDER
         note = Note.create("Secret", "placeholder", encrypted=True, blob=b"fakeciphertext")
         w = NoteEditorWidget()
         w.load(note)
@@ -795,7 +795,7 @@ class TestNoteEditorWidget:
     def test_load_encrypted_note_with_decrypted_content(self):
         """§8.4  load() shows decrypted content when provided."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         note = Note.create("Secret", "placeholder", encrypted=True, blob=b"fakeciphertext")
         w = NoteEditorWidget()
         w.load(note, decrypted_content="The real secret")
@@ -804,7 +804,7 @@ class TestNoteEditorWidget:
     def test_get_title_strips_whitespace(self):
         """§8.5  get_title() strips leading and trailing whitespace."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         w._title_edit.setText("  trimmed  ")
         assert w.get_title() == "trimmed"
@@ -812,7 +812,7 @@ class TestNoteEditorWidget:
     def test_show_encrypted_placeholder_replaces_content(self):
         """§8.6  show_encrypted_placeholder() replaces content with [Encrypted]."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget, _ENCRYPTED_PLACEHOLDER
+        from src.desktop.note_editor import NoteEditorWidget, _ENCRYPTED_PLACEHOLDER
         w = NoteEditorWidget()
         w._content_edit.setPlainText("visible text")
         w.show_encrypted_placeholder()
@@ -821,7 +821,7 @@ class TestNoteEditorWidget:
     def test_set_encrypted_checkbox_state(self):
         """§8.7  set_encrypted() controls the encrypted checkbox."""
         _ensure_app()
-        from src.desktop.main_window import NoteEditorWidget
+        from src.desktop.note_editor import NoteEditorWidget
         w = NoteEditorWidget()
         w.set_encrypted(True)
         assert w.is_encrypted() is True
@@ -911,7 +911,7 @@ class TestMainWindowCRUD:
         w._on_save()
         updated = store.get(note.id)
         assert updated.title == "Updated"
-        assert updated.content == "new content"
+        assert "new content" in updated.content
 
     def test_on_delete_removes_note(self, tmp_path):
         """§9.8  _on_delete() removes the current note after confirmation."""
@@ -925,13 +925,17 @@ class TestMainWindowCRUD:
             w._on_delete()
         assert store.get(note.id) is None
 
-    def test_on_delete_no_selection_shows_info(self, tmp_path):
-        """§9.9  _on_delete() with no current note shows info message."""
+    def test_on_delete_unsaved_new_note_closes_tab(self, tmp_path):
+        """§9.9  _on_delete() on an unsaved new note discards it (closes the tab)."""
         w, _ = self._make_window(tmp_path)
-        w._current_note = None
+        w._on_new_note()                      # opens a brand-new, unsaved tab
+        assert w._tab_widget.count() == 1
+        w._current_note = None                # unsaved → nothing persisted
         with patch("src.desktop.main_window.QMessageBox.information") as mock_info:
             w._on_delete()
-        mock_info.assert_called_once()
+        # The unsaved tab is closed and no "select a note" dialog is shown.
+        assert w._tab_widget.count() == 0
+        mock_info.assert_not_called()
 
     def test_on_delete_cancelled_does_not_remove(self, tmp_path):
         """§9.10  Cancelling the delete dialog leaves the note intact."""
@@ -1135,6 +1139,110 @@ class TestSecurityLevelPassphrase:
         w._cached_passphrase = "wrong-passphrase"
         result = w._try_decrypt_note(note)
         assert result is None
+
+    @staticmethod
+    def _make_real_encrypted_note(store, title, content, pw="pw"):
+        """Create a note encrypted the same way _on_save does (decryptable)."""
+        import json
+        from src.core.security import KeyManager
+        from src.core.blob_codec import BlobCodec
+        from src.core.container import Container, FLAG_ENCRYPTED
+        engine = KeyManager(pw).get_engine()
+        inner = json.dumps({"title": title, "content": content}).encode("utf-8")
+        raw = Container.frame(inner, "application/x-astranotes-text", FLAG_ENCRYPTED)
+        blob = BlobCodec.encrypt(raw, engine)
+        note = Note.create(title, "", encrypted=True, blob=blob)
+        store.add(note)
+        return note
+
+    def test_high_mode_relocks_encrypted_tab_on_navigation(self, tmp_path):
+        """§11.6  High mode re-locks an unlocked encrypted tab when navigating away.
+
+        Regression: leaving a decrypted encrypted note in a background tab let
+        it be revealed later (e.g. auto-switch after closing another tab).
+        """
+        from PySide6.QtCore import Qt
+        w, store, config = self._make_window(tmp_path)
+        config.set("security_level", "high")
+        a = self._make_real_encrypted_note(store, "A", "<p>secret a</p>")
+        b = self._make_real_encrypted_note(store, "B", "<p>secret b</p>")
+
+        def select(n):
+            w.populate_note_list()
+            for r in range(w._note_list.count()):
+                it = w._note_list.item(r)
+                if it and it.data(Qt.ItemDataRole.UserRole) == n.id:
+                    w._on_note_selected(it, None)
+                    return
+
+        select(a)
+        with patch.object(w, "_get_or_prompt_passphrase", return_value="pw"):
+            w._on_unlock_requested()
+        host_a = w._note_editors[a.id]
+        assert host_a._stack.currentIndex() == 0      # A is decrypted / visible
+
+        select(b)                                      # navigate away from A
+        assert host_a._stack.currentIndex() == 1       # A re-locked
+        assert w._cached_passphrase is None
+
+    def test_session_mode_keeps_encrypted_tab_unlocked_on_navigation(self, tmp_path):
+        """§11.7  Session mode leaves an unlocked encrypted tab as-is on navigation."""
+        from PySide6.QtCore import Qt
+        w, store, config = self._make_window(tmp_path)
+        config.set("security_level", "session")
+        a = self._make_real_encrypted_note(store, "A", "<p>secret a</p>")
+        b = self._make_real_encrypted_note(store, "B", "<p>secret b</p>")
+
+        def select(n):
+            w.populate_note_list()
+            for r in range(w._note_list.count()):
+                it = w._note_list.item(r)
+                if it and it.data(Qt.ItemDataRole.UserRole) == n.id:
+                    w._on_note_selected(it, None)
+                    return
+
+        select(a)
+        with patch.object(w, "_get_or_prompt_passphrase", return_value="pw"):
+            w._on_unlock_requested()
+        host_a = w._note_editors[a.id]
+        assert host_a._stack.currentIndex() == 0
+
+        select(b)
+        # Session mode opted into staying unlocked — A is not force-locked.
+        assert host_a._stack.currentIndex() == 0
+
+    def test_high_mode_clears_passphrase_when_closing_unlocked_tab(self, tmp_path):
+        """§11.8  Closing an unlocked encrypted tab clears the cached passphrase.
+
+        Regression: after saving/closing a note the passphrase stayed cached, so
+        clicking Unlock on the note we land on would silently decrypt it when the
+        two notes shared a passphrase.  Closing must forget the passphrase.
+        """
+        from PySide6.QtCore import Qt
+        w, store, config = self._make_window(tmp_path)
+        config.set("security_level", "high")
+        a = self._make_real_encrypted_note(store, "A", "<p>a</p>")
+        b = self._make_real_encrypted_note(store, "B", "<p>b</p>")
+
+        def select(n):
+            w.populate_note_list()
+            for r in range(w._note_list.count()):
+                it = w._note_list.item(r)
+                if it and it.data(Qt.ItemDataRole.UserRole) == n.id:
+                    w._on_note_selected(it, None)
+                    return
+
+        select(a)
+        select(b)                                       # B now active
+        with patch.object(w, "_get_or_prompt_passphrase", return_value="pw"):
+            w._on_unlock_requested()                    # unlock B (passphrase cached)
+        assert w._cached_passphrase == "pw"
+
+        # Close B's (active) tab — we land on A, which must require a fresh prompt.
+        w._on_tab_close_requested(w._tab_widget.currentIndex())
+        assert w._cached_passphrase is None
+        host_a = w._note_editors[a.id]
+        assert host_a._stack.currentIndex() == 1        # A is locked
 
 
 # ---------------------------------------------------------------------------

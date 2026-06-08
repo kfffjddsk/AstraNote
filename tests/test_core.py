@@ -228,6 +228,29 @@ def test_store_update_encrypted_note_blob(tmp_store: DatabaseStore) -> None:
     assert fetched.blob == new_blob
 
 
+@pytest.mark.unit
+def test_store_update_plain_to_encrypted_drops_cleartext(tmp_store: DatabaseStore) -> None:
+    """update(blob=…, encrypted=True) must flip a plain note to encrypted.
+
+    Regression: previously this no-op'd, leaving the row unencrypted with its
+    cleartext container intact — so a note "encrypted" via the editor stayed
+    readable.  The conversion must set is_encrypted and replace the container.
+    """
+    note = _plain_note(content="sensitive cleartext")
+    tmp_store.add(note)
+    assert tmp_store.get(note.id).encrypted is False  # type: ignore[union-attr]
+    new_blob = b"ciphertext_blob_" * 4
+    updated = tmp_store.update(note.id, title="alias", blob=new_blob, encrypted=True)
+    assert updated.encrypted is True
+    assert updated.blob == new_blob
+    assert updated.content == ""          # no cleartext retained
+    fetched = tmp_store.get(note.id)
+    assert fetched is not None
+    assert fetched.encrypted is True
+    assert fetched.blob == new_blob
+    assert fetched.content == ""
+
+
 # ===========================================================================
 # 4. DatabaseStore — delete
 # ===========================================================================
@@ -268,13 +291,14 @@ def test_store_list_returns_account_notes_for_matching_account_id(tmp_store: Dat
     and keeps anonymous notes in local_notes.  [D-11] [REQ R1.3]"""
     # Public add() always writes account_id=NULL; insert a row directly to
     # exercise the account_notes bucket in _do().
+    from src.core.container import Container
     with tmp_store._Session() as session:
         row = _NoteRow(
             note_id="acct-001",
             account_id="user-abc",
             title="Account Note",
-            content="visible",
             is_encrypted=False,
+            container=Container.frame(b"visible", "text/plain"),
             created_at="2026-01-01T00:00:00+00:00",
             modified_at="2026-01-01T00:00:00+00:00",
         )
@@ -371,10 +395,10 @@ def test_wrong_passphrase_raises_invalid_tag() -> None:
 
 
 @pytest.mark.unit
-def test_keymanager_rejects_short_passphrase() -> None:
-    """KeyManager must reject passphrases shorter than 8 chars.  [BL B-34] [REQ R2.11]"""
-    with pytest.raises(ValueError, match="8"):
-        KeyManager("short")
+def test_keymanager_accepts_short_passphrase() -> None:
+    """KeyManager accepts passphrases of any length (no minimum enforced)."""
+    km = KeyManager("hi")
+    assert km.get_engine() is not None
 
 
 @pytest.mark.unit

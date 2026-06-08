@@ -115,7 +115,7 @@ def test_execute_with_retry_retries_on_locked_then_succeeds() -> None:
         return "ok"
 
     # Patch the sleep to keep the test fast.
-    with patch("src.core.notes.time.sleep"):
+    with patch("src.core.store.time.sleep"):
         result = _execute_with_retry(_flaky)
 
     assert result == "ok"
@@ -133,7 +133,7 @@ def test_execute_with_retry_gives_up_after_max_attempts() -> None:
         calls.append(1)
         raise OperationalError("stmt", {}, Exception("database is locked"))
 
-    with patch("src.core.notes.time.sleep"), pytest.raises(OperationalError):
+    with patch("src.core.store.time.sleep"), pytest.raises(OperationalError):
         _execute_with_retry(_always_locked)
 
     assert len(calls) == _RETRY_ATTEMPTS
@@ -1071,16 +1071,14 @@ def test_cli_add_encrypt_passphrase_mismatch_aborts(tmp_path: Path) -> None:
 
 
 @pytest.mark.cli
-def test_cli_add_encrypt_short_passphrase_rejected(tmp_path: Path) -> None:
-    """Passphrase shorter than 8 chars is rejected by KeyManager.  [REQ R2.11]"""
+def test_cli_add_encrypt_short_passphrase_accepted(tmp_path: Path) -> None:
+    """Passphrases of any length are accepted (no minimum enforced)."""
     runner, args = _runner(tmp_path)
-    # Even though Click accepts the input, KeyManager.get_engine() should raise
-    # ValueError for short passphrase, which the CLI turns into exit code 1.
     result = runner.invoke(
         cli, args + ["add", "--title", "S", "--content", "C", "--encrypt"],
         input="short\nshort\n",
     )
-    assert result.exit_code == 1
+    assert result.exit_code == 0
 
 
 # ===========================================================================

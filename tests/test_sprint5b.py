@@ -136,7 +136,7 @@ class TestMergeWindow:
     def _make_dlg(self, local_content="local text", remote_content="remote text",
                   title="My Note", note_id="note-001", remote_modified_at="2026-01-02T00:00:00"):
         _ensure_app()
-        from src.desktop.merge_window import MergeWindow
+        from src.desktop.sync.merge_window import MergeWindow
         local = {"id": note_id, "title": title, "content": local_content}
         remote = {"content": remote_content, "modified_at": remote_modified_at}
         return MergeWindow(local_note=local, remote_note=remote)
@@ -177,7 +177,7 @@ class TestMergeWindow:
 def _make_worker(store, client_mock, direction="push"):
     """Create a SyncWorker with a mock SyncClient."""
     _ensure_app()
-    from src.desktop.sync_worker import SyncWorker
+    from src.desktop.sync.worker import SyncWorker
     return SyncWorker(
         client=client_mock,
         token="test-token",
