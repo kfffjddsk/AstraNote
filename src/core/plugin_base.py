@@ -74,7 +74,7 @@ class PluginBase(ABC):
 
     name: str = ""
     version: str = ""
-    overrides: list[str] = dataclasses.field(default_factory=list)
+    overrides: list[str] = []
 
     @abstractmethod
     def register_hooks(self, registry: "PluginRegistry") -> None:
@@ -197,6 +197,27 @@ class PluginRegistry:
             # Skip register_hooks; plugin still recorded for EditorProvider use.
             return
         plugin.register_hooks(self)
+
+    def unregister_plugin(self, plugin_name: str) -> bool:
+        """Remove *plugin_name* from the live registry and rebuild the hook table.
+
+        Returns ``True`` if the plugin was found and removed.  The hook table is
+        rebuilt from all remaining plugins so no stale callbacks survive.
+        """
+        before = len(self._plugins)
+        self._plugins = [p for p in self._plugins if p.name != plugin_name]
+        if len(self._plugins) == before:
+            logger.warning("unregister_plugin: no plugin named %r found.", plugin_name)
+            return False
+        # Rebuild hook table from the surviving plugins only.
+        self._hooks.clear()
+        for p in self._plugins:
+            try:
+                p.register_hooks(self)
+            except Exception:
+                logger.exception("Failed to re-register hooks for plugin %r.", p.name)
+        logger.info("Unregistered plugin %r.", plugin_name)
+        return True
 
     def register_hook(self, name: str, fn: Callable) -> None:
         """Attach *fn* to the hook named *name*."""

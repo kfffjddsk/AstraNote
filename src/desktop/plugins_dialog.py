@@ -77,10 +77,13 @@ class PluginsDialog(QDialog):
         self._desc.setPlaceholderText("Select a row to see details...")
         layout.addWidget(self._desc)
 
-        # Bottom buttons
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.reject)
-        buttons.accepted.connect(self.accept)
+        # Bottom buttons — Apply commits pending changes; Close dismisses
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Apply | QDialogButtonBox.StandardButton.Close
+        )
+        apply_btn = buttons.button(QDialogButtonBox.StandardButton.Apply)
+        if apply_btn is not None:
+            apply_btn.clicked.connect(self._on_apply)
         close_btn = buttons.button(QDialogButtonBox.StandardButton.Close)
         if close_btn is not None:
             close_btn.clicked.connect(self.accept)
@@ -210,22 +213,35 @@ class PluginsDialog(QDialog):
     def _on_installed_check_changed(self, item: QTreeWidgetItem, column: int) -> None:
         if column != 0:
             return
-        plugin = item.data(0, Qt.ItemDataRole.UserRole)
-        if plugin is None:
+        if item.data(0, Qt.ItemDataRole.UserRole) is None:
             return
-        name = getattr(plugin, "name", type(plugin).__name__)
-        allowed_raw = self._config.get("allowed_plugins") or []
-        allowed = list(allowed_raw) if isinstance(allowed_raw, list) else []
         checked = item.checkState(0) == Qt.CheckState.Checked
-        if checked and name not in allowed:
-            allowed.append(name)
-        elif not checked and name in allowed:
-            allowed.remove(name)
+        item.setText(2, "✓ Allowed" if checked else "Disabled")
+
+    def _on_apply(self) -> None:
+        """Commit pending enable/disable changes to the live registry and config."""
+        allowed: list[str] = []
+        for i in range(self._installed_tree.topLevelItemCount()):
+            item = self._installed_tree.topLevelItem(i)
+            if item is None:
+                continue
+            plugin = item.data(0, Qt.ItemDataRole.UserRole)
+            if plugin is None:
+                continue
+            name = getattr(plugin, "name", type(plugin).__name__)
+            checked = item.checkState(0) == Qt.CheckState.Checked
+            in_registry = plugin in self._registry._plugins
+            if checked:
+                allowed.append(name)
+                if not in_registry:
+                    self._registry.register_plugin(plugin)
+            elif in_registry:
+                self._registry.unregister_plugin(name)
         try:
             self._config.set("allowed_plugins", allowed)
         except (KeyError, ValueError) as exc:
             logger.warning("Could not update allowed_plugins: %s", exc)
-        item.setText(2, "✓ Allowed" if checked else "Disabled")
+        self._populate_formats()
 
     def _apply_filter(self, text: str) -> None:
         needle = text.strip().lower()
