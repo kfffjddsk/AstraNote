@@ -469,8 +469,7 @@ class MainWindow(QMainWindow):
         # For media notes, verify a plugin is available before opening a tab.
         if mime_type.startswith("audio/") or mime_type.startswith("video/"):
             if self._find_editor_for_mime(mime_type) is None:
-                self._warn_plugin_missing(note.title, mime_type)
-                return None
+                return None  # caller is responsible for showing the error
         return self._open_new_tab(note_id=note.id, label=label, mime_type=mime_type)
 
     def _warn_plugin_missing(self, note_title: str, mime_type: str) -> None:
@@ -1301,17 +1300,27 @@ class MainWindow(QMainWindow):
             and self._current_note.id != note_id
         ):
             self._cached_passphrase = None
+
+        # For non-encrypted media notes, check plugin availability BEFORE calling
+        # _get_or_open_tab.  The check must come first so we can revert the list
+        # selection and THEN show the error dialog.  If the dialog opened while the
+        # wrong item was still highlighted (inside _get_or_open_tab's modal loop),
+        # the QMessageBox event loop would repaint the list with the wrong selection.
+        missing_mime: Optional[str] = None
+        if not note.encrypted:
+            check_mime = self._mime_for_content(note.content or "")
+            if check_mime.startswith(("audio/", "video/")):
+                if self._find_editor_for_mime(check_mime) is None:
+                    missing_mime = check_mime
+
+        if missing_mime is not None:
+            self._revert_note_selection(previous)
+            self._warn_plugin_missing(note.title, missing_mime)
+            return
+
         editor = self._get_or_open_tab(note)
         if editor is None:
-            # Cannot open this note — revert the list highlight to the previous item
-            # so the unsupported note does not appear selected.
-            self._note_list.blockSignals(True)
-            if previous is not None:
-                self._note_list.setCurrentItem(previous)
-            else:
-                self._note_list.setCurrentRow(-1)
-                self._note_list.clearSelection()
-            self._note_list.blockSignals(False)
+            self._revert_note_selection(previous)
             return
         self._current_note = note
         decrypted_content: Optional[str] = None
@@ -1329,6 +1338,16 @@ class MainWindow(QMainWindow):
                 return
         editor.load(note, decrypted_content=decrypted_content)
         self.reset_idle_timer()
+
+    def _revert_note_selection(self, previous: Optional[QListWidgetItem]) -> None:
+        """Restore the note list highlight to *previous* (or clear it)."""
+        self._note_list.blockSignals(True)
+        if previous is not None:
+            self._note_list.setCurrentItem(previous)
+        else:
+            self._note_list.setCurrentRow(-1)
+            self._note_list.clearSelection()
+        self._note_list.blockSignals(False)
 
     def _on_note_item_clicked(self, item: QListWidgetItem) -> None:
         """Re-click on an already-selected note: focus its existing tab.
