@@ -1,0 +1,12 @@
+{
+  "plugin_id": "tiptap_plugin",
+  "name": "TiptapPlugin",
+  "version": "1.0.0",
+  "author": "AstraNotes",
+  "description": "Full-featured rich-text editor powered by Tiptap: headings, bullet/ordered lists, code blocks with syntax highlighting, images, and more.",
+  "engines": { "astranotes": ">=5.0" },
+  "main": "tiptap_plugin.py",
+  "mime_types": ["text/html"],
+  "permissions": ["filesystem"],
+  "verified": true
+}

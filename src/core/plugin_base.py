@@ -10,7 +10,24 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
+
+if TYPE_CHECKING:
+    from src.core.editor_protocol import EditorProtocol
+    from src.core.plugin_context import PluginContext
+
+
+# ---------------------------------------------------------------------------
+# Pack / unpack error types
+# ---------------------------------------------------------------------------
+
+
+class PluginPackError(Exception):
+    """Raised by :meth:`PluginBase.pack` when the input cannot be packed."""
+
+
+class PluginUnpackError(Exception):
+    """Raised by :meth:`PluginBase.unpack` when the bytes cannot be unpacked."""
 
 import jsonschema
 
@@ -27,8 +44,22 @@ _MANIFEST_SCHEMA: dict = {
         "plugin_id": {"type": "string", "minLength": 1},
         "name": {"type": "string", "minLength": 1},
         "version": {"type": "string", "minLength": 1},
+        "author": {"type": "string"},
+        "description": {"type": "string"},
         "engines": {"type": "object"},
         "main": {"type": "string", "minLength": 1},
+        # Security fields  [BL B-100] [REQ R4.13]
+        "permissions": {
+            "type": "array",
+            "items": {"type": "string", "enum": ["network", "filesystem", "clipboard"]},
+            "default": [],
+        },
+        "verified": {"type": "boolean", "default": False},
+        "mime_types": {
+            "type": "array",
+            "items": {"type": "string"},
+            "default": [],
+        },
     },
     "additionalProperties": True,
 }
@@ -48,6 +79,73 @@ class PluginBase(ABC):
     @abstractmethod
     def register_hooks(self, registry: "PluginRegistry") -> None:
         """Register this plugin's hooks with *registry*."""
+
+    def pack(self, data: Any) -> bytes:
+        """Serialise *data* to raw bytes for container storage.
+
+        The returned bytes are passed directly to :func:`~src.core.container.Container.frame`
+        as the payload.  Raise :class:`PluginPackError` on failure.
+
+        The default implementation encodes *data* as UTF-8 if it is a ``str``,
+        or returns it unchanged if it is already ``bytes``.  Override for
+        richer formats.
+        """
+        if isinstance(data, bytes):
+            return data
+        if isinstance(data, str):
+            return data.encode("utf-8")
+        raise PluginPackError(
+            f"{type(self).__name__}.pack() received unsupported type {type(data).__name__!r}. "
+            "Override pack() to handle this type."
+        )
+
+    def unpack(self, data: bytes) -> Any:
+        """Deserialise *data* back to the original value.
+
+        *data* is the raw payload bytes extracted from a container.
+        Raise :class:`PluginUnpackError` on failure.
+
+        The default implementation returns the bytes as a UTF-8 string, falling
+        back to raw bytes on decode error.  Override for richer formats.
+        """
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise PluginUnpackError(
+                f"Default unpack() could not decode payload as UTF-8: {exc}"
+            ) from exc
+
+    def mime_type(self) -> str:
+        """Return the MIME type this plugin stores in the container header.
+
+        Override to advertise a more specific type (e.g. ``"text/markdown"``).
+        """
+        return "text/plain"
+
+    def create_editor(self) -> Optional["EditorProtocol"]:
+        """Return a fresh editor widget instance, or ``None``.
+
+        The returned object must satisfy :class:`~src.core.editor_protocol.EditorProtocol`:
+        it must be a ``QWidget`` subclass that declares ``save_requested`` and
+        ``content_changed`` Qt signals and implements ``load()`` /
+        ``show_save_result()``.
+
+        Return ``None`` (the default) to indicate that this plugin does not
+        supply an editor UI; the host will fall back to
+        :class:`~src.core.editor_protocol.DefaultFileEditor`.
+        """
+        return None
+
+    def initialize(self, context: "PluginContext") -> None:
+        """Called once after the plugin is registered, before any notes are opened.
+
+        *context* is a :class:`~src.core.plugin_context.PluginContext` providing
+        namespaced settings access and a logger.  It does **not** expose
+        DatabaseStore or any note data.
+
+        Override to perform one-time setup (e.g. reading persisted settings).
+        The default implementation does nothing.
+        """
 
     def get_commands(self) -> dict[str, Callable]:
         """Return additional CLI commands provided by this plugin.

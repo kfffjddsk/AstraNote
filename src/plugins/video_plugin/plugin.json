@@ -1,0 +1,12 @@
+{
+  "plugin_id": "video_plugin",
+  "name": "VideoPlugin",
+  "version": "1.0.0",
+  "author": "AstraNotes",
+  "description": "Video notes: record from your webcam or attach an existing video file, then play it back inline. Stored as a self-contained data URI.",
+  "engines": { "astranotes": ">=5.0" },
+  "main": "video_plugin.py",
+  "mime_types": ["video/mp4"],
+  "permissions": ["filesystem"],
+  "verified": true
+}

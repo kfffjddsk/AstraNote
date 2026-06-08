@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AstraNotes Editor</title>
+  <!-- qwebchannel.js is injected by Qt at DocumentCreation time -->
+</head>
+<body>
+  <div id="app">
+
+    <div id="header">
+      <input
+        id="title"
+        type="text"
+        placeholder="Note title"
+        autocomplete="off"
+        spellcheck="true"
+      />
+    </div>
+
+    <div id="toolbar" role="toolbar" aria-label="Text formatting">
+
+      <!-- Inline format -->
+      <button class="tb" data-action="bold"      title="Bold (Ctrl+B)"><b>B</b></button>
+      <button class="tb" data-action="italic"    title="Italic (Ctrl+I)"><i>I</i></button>
+      <button class="tb" data-action="underline" title="Underline (Ctrl+U)"><u>U</u></button>
+      <button class="tb" data-action="strike"    title="Strikethrough"><s>S</s></button>
+      <button class="tb" data-action="code"      title="Inline code"><code>` `</code></button>
+      <div class="sep"></div>
+
+      <!-- Headings -->
+      <button class="tb" data-action="h1" title="Heading 1">H1</button>
+      <button class="tb" data-action="h2" title="Heading 2">H2</button>
+      <button class="tb" data-action="h3" title="Heading 3">H3</button>
+      <div class="sep"></div>
+
+      <!-- Lists -->
+      <button class="tb" data-action="bulletList"  title="Bullet list">&#8226; List</button>
+      <button class="tb" data-action="orderedList" title="Ordered list">1. List</button>
+      <div class="sep"></div>
+
+      <!-- Blocks -->
+      <button class="tb" data-action="codeBlock"  title="Code block">&lt;/&gt;</button>
+      <button class="tb" data-action="blockquote" title="Blockquote">&#10077;</button>
+      <div class="sep"></div>
+
+      <!-- Media -->
+      <button class="tb" data-action="image" title="Insert image">&#128247;</button>
+      <div class="sep"></div>
+
+      <!-- History -->
+      <button class="tb" data-action="undo" title="Undo (Ctrl+Z)">&#8617;</button>
+      <button class="tb" data-action="redo" title="Redo (Ctrl+Y)">&#8618;</button>
+
+      <div class="spacer"></div>
+
+      <!-- Save / Delete -->
+      <button class="tb" id="btn-save"   title="Save (Ctrl+S)">&#128190;</button>
+      <button class="tb" id="btn-delete" title="Delete note">&#128465;</button>
+
+    </div>
+
+    <div id="editor-wrap">
+      <div id="editor"></div>
+    </div>
+
+  </div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

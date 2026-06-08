@@ -1,0 +1,12 @@
+{
+  "plugin_id": "voice_plugin",
+  "name": "VoicePlugin",
+  "version": "1.0.0",
+  "author": "AstraNotes",
+  "description": "Voice notes: record audio from your microphone or attach an existing audio file, then play it back inline. Stored as a self-contained data URI.",
+  "engines": { "astranotes": ">=5.0" },
+  "main": "voice_plugin.py",
+  "mime_types": ["audio/basic"],
+  "permissions": ["filesystem"],
+  "verified": true
+}
