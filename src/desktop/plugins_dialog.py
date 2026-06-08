@@ -46,12 +46,15 @@ class PluginsDialog(QDialog):
         registry: PluginRegistry,
         config: ConfigStore,
         parent: Optional[QWidget] = None,
+        *,
+        open_mimes: frozenset = frozenset(),
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("AstraNotes — Plugins Admin")
         self.setMinimumSize(720, 460)
         self._registry = registry
         self._config = config
+        self._open_mimes = open_mimes
 
         layout = QVBoxLayout(self)
 
@@ -220,23 +223,46 @@ class PluginsDialog(QDialog):
 
     def _on_apply(self) -> None:
         """Commit pending enable/disable changes to the live registry and config."""
+        blocked: list[str] = []
         allowed: list[str] = []
-        for i in range(self._installed_tree.topLevelItemCount()):
-            item = self._installed_tree.topLevelItem(i)
-            if item is None:
-                continue
-            plugin = item.data(0, Qt.ItemDataRole.UserRole)
-            if plugin is None:
-                continue
-            name = getattr(plugin, "name", type(plugin).__name__)
-            checked = item.checkState(0) == Qt.CheckState.Checked
-            in_registry = plugin in self._registry._plugins
-            if checked:
-                allowed.append(name)
-                if not in_registry:
-                    self._registry.register_plugin(plugin)
-            elif in_registry:
-                self._registry.unregister_plugin(name)
+        self._installed_tree.blockSignals(True)
+        try:
+            for i in range(self._installed_tree.topLevelItemCount()):
+                item = self._installed_tree.topLevelItem(i)
+                if item is None:
+                    continue
+                plugin = item.data(0, Qt.ItemDataRole.UserRole)
+                if plugin is None:
+                    continue
+                name = getattr(plugin, "name", type(plugin).__name__)
+                checked = item.checkState(0) == Qt.CheckState.Checked
+                in_registry = plugin in self._registry._plugins
+                if checked:
+                    allowed.append(name)
+                    if not in_registry:
+                        self._registry.register_plugin(plugin)
+                else:
+                    plugin_mimes = set(getattr(plugin, "mime_types", None) or [])
+                    if plugin_mimes & self._open_mimes:
+                        # A note of this type is open — refuse to disable mid-session
+                        blocked.append(name)
+                        allowed.append(name)
+                        item.setCheckState(0, Qt.CheckState.Checked)
+                        item.setText(2, "✓ Allowed")
+                    elif in_registry:
+                        self._registry.unregister_plugin(name)
+        finally:
+            self._installed_tree.blockSignals(False)
+
+        if blocked:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self,
+                "Plugin In Use",
+                f"Cannot disable: {', '.join(blocked)}\n\n"
+                "A note of this type is currently open. "
+                "Close the note tab first, then apply the change.",
+            )
         try:
             self._config.set("allowed_plugins", allowed)
         except (KeyError, ValueError) as exc:

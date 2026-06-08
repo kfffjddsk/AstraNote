@@ -204,6 +204,18 @@ def _load_one(
                     "Plugin %r initialize() raised; loading anyway.", plugin_id
                 )
 
+            # Respect the allowed_plugins whitelist.  A non-empty list means the
+            # user has explicitly configured which plugins may be active.
+            allowed_raw = config.get("allowed_plugins")
+            if isinstance(allowed_raw, list) and allowed_raw:
+                inst_name = getattr(instance, "name", None) or plugin_id
+                if inst_name not in allowed_raw:
+                    logger.info(
+                        "Plugin %r excluded by allowed_plugins config; skipping registration.",
+                        inst_name,
+                    )
+                    return None
+
             registry.register_plugin(instance, is_official=verified)
             # Append manifest for PluginsDialog (user plugins only — bundled
             # manifests are pre-loaded via registry.load_manifests in AppController)

@@ -453,7 +453,7 @@ class MainWindow(QMainWindow):
         self._show_editor()
         return editor
 
-    def _get_or_open_tab(self, note: Note) -> PluginEditorHost:
+    def _get_or_open_tab(self, note: Note) -> Optional[PluginEditorHost]:
         if note.id in self._note_editors:
             editor = self._note_editors[note.id]
             idx = self._tab_widget.indexOf(editor)
@@ -468,7 +468,35 @@ class MainWindow(QMainWindow):
             mime_type = "text/html"
         else:
             mime_type = self._mime_for_content(note.content or "")
+        # For media notes, verify a plugin is available before opening a tab.
+        if mime_type.startswith("audio/") or mime_type.startswith("video/"):
+            if self._find_editor_for_mime(mime_type) is None:
+                self._warn_plugin_missing(note.title, mime_type)
+                return None
         return self._open_new_tab(note_id=note.id, label=label, mime_type=mime_type)
+
+    def _warn_plugin_missing(self, note_title: str, mime_type: str) -> None:
+        """Show an error when no plugin is available to open a media note."""
+        plugin_name: Optional[str] = None
+        for m in getattr(self._registry, "_manifests", []) or []:
+            if mime_type in (m.get("mime_types") or []):
+                plugin_name = m.get("name") or m.get("plugin_id")
+                break
+        if plugin_name:
+            body = (
+                f"{plugin_name} is disabled.\n"
+                "Enable it in Plugins Admin and try again."
+            )
+        else:
+            body = (
+                f"No plugin is available for {mime_type} content.\n"
+                "Enable the required plugin in Plugins Admin and try again."
+            )
+        QMessageBox.warning(
+            self,
+            f"Cannot open \"{note_title}\"",
+            body,
+        )
 
     @staticmethod
     def _mime_for_content(content: str) -> str:
@@ -756,7 +784,14 @@ class MainWindow(QMainWindow):
             editor.apply_theme(dlg.theme)
 
     def _on_plugins(self) -> None:
-        dlg = PluginsDialog(self._registry, self._config, self)
+        open_mimes: set[str] = set()
+        for i in range(self._tab_widget.count()):
+            widget = self._tab_widget.widget(i)
+            if isinstance(widget, PluginEditorHost):
+                mime = getattr(widget, "_routing_mime", None)
+                if mime:
+                    open_mimes.add(mime)
+        dlg = PluginsDialog(self._registry, self._config, self, open_mimes=frozenset(open_mimes))
         dlg.exec()
 
     def _on_widget_gallery(self) -> None:
@@ -965,11 +1000,15 @@ class MainWindow(QMainWindow):
                 if ed is not None:
                     return ed
 
-        # Tier 3: any plugin as a last resort
-        for plugin in plugins:
-            ed = plugin.create_editor()
-            if ed is not None:
-                return ed
+        # Tier 3: fallback to any plugin — text-family MIMEs only.
+        # For audio/video MIMEs, returning an arbitrary text editor would silently
+        # render raw base64 data.  Return None instead so the caller can show a
+        # "plugin missing" error.
+        if not (mime_type.startswith("audio/") or mime_type.startswith("video/")):
+            for plugin in plugins:
+                ed = plugin.create_editor()
+                if ed is not None:
+                    return ed
 
         return None
 
@@ -1260,6 +1299,8 @@ class MainWindow(QMainWindow):
             self._cached_passphrase = None
         self._current_note = note
         editor = self._get_or_open_tab(note)
+        if editor is None:
+            return
         decrypted_content: Optional[str] = None
         if note.encrypted and self._cached_passphrase:
             result = self._try_decrypt_note(note)
