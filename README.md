@@ -3,7 +3,7 @@
 [![User Guide](https://img.shields.io/badge/📖_User_Guide-blue?style=for-the-badge)](#for-users)
 [![Developer Guide](https://img.shields.io/badge/🔧_Developer_Guide-green?style=for-the-badge)](#for-developers)
 [![License](https://img.shields.io/badge/License-Apache_2.0-orange?style=for-the-badge)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-671_passing-brightgreen?style=for-the-badge)](#running-tests)
+[![Tests](https://img.shields.io/badge/Tests-715_passing-brightgreen?style=for-the-badge)](#running-tests)
 
 AstraNotes is a secure, local-first note-taking platform built in Python. It works as a CLI tool, a PySide6 desktop application, and an optional cloud-sync service — all sharing the same encrypted SQLite core. A plugin system lets you extend note formats (rich text, voice, video) without touching core logic.
 
@@ -214,7 +214,7 @@ AstraNotes/
 │       ├── tiptap_plugin/      # Rich-text editor (Tiptap + ProseMirror)
 │       ├── voice_plugin/       # Microphone recording + audio playback
 │       └── video_plugin/       # Webcam recording + video playback
-├── tests/                      # 671 tests — unit, BDD, CLI integration
+├── tests/                      # 715 tests — unit, BDD, CLI integration
 ├── planning/                   # Backlog, PRD, requirements, design, traceability
 ├── Copilot/                    # Sprint plans, working agreement, discussion list
 ├── docs/                       # Architecture, AI-use disclosure
@@ -261,7 +261,7 @@ python -m pytest tests/ -q -m "not gui"
 python -m pytest tests/ -q --cov=src/core --cov-branch --cov-report=term-missing
 ```
 
-The test suite currently passes **671 tests** (1 skipped — requires a live microphone).
+The test suite currently passes **715 tests** (1 skipped — requires a live microphone).
 
 ### Running the Sync Server
 

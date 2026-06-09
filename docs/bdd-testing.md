@@ -10,7 +10,7 @@ BDD is the primary approach for CLI testing. All CLI integration tests are Gherk
 
 ## Structure
 
-> **Updated May 2026 (Sprint 3):** Sprint 3 is complete. All 30 BDD scenarios pass. The full suite totals 396 tests across `test_steps.py`, `test_core.py`, `test_sprint1.py`, `test_sprint2.py`, and `test_sprint3.py`. Three new feature files were added in Sprint 3: `search_notes.feature`, `reencrypt_note.feature`, and `audit_log.feature`.
+> **Updated June 2026 (Sprint 5D complete):** All 30 BDD scenarios pass. The full suite totals **715 tests** (716 collected, 1 skipped) across `test_steps.py`, `test_core.py`, `test_sprint1.py` – `test_sprint5b.py`, and `test_sprint5_ui.py`. Three Gherkin feature files were added in Sprint 3 (`search_notes.feature`, `reencrypt_note.feature`, `audit_log.feature`); no new feature files added in Sprints 4–5 (GUI and sync behavior covered by pytest classes in sprint-specific files).
 
 ```
 tests/
@@ -25,7 +25,16 @@ tests/
 │   └── update_notes.feature
 ├── steps/             # Step definitions in Python
 │   └── test_steps.py
-├── test_core.py       # Unit tests for core modules
+├── test_core.py       # Unit tests for core modules (41 tests)
+├── test_sprint1.py    # CLI, WAL, plugin, Alembic (83 tests)
+├── test_sprint2.py    # Auth, session, hybrid storage (106 tests)
+├── test_sprint3.py    # Audit, config, search/export, reencrypt (126 tests)
+├── test_sprint4.py    # AppController, MainWindow, plugin manifest (109 tests)
+├── test_sprint4b.py   # GUI completeness: tabs, settings, search bar (77 tests)
+├── test_sprint5a.py   # Sync server MVP (40 tests)
+├── test_sprint5a2.py  # Server hardening: HTTPS, rate-limit, Postgres (22 tests)
+├── test_sprint5b.py   # Desktop sync UI, OAuth, SyncWorker (38 tests)
+├── test_sprint5_ui.py # Sprint 5 UI: selection guard, plugin dialogs (44 tests)
 └── conftest.py        # Shared fixtures
 ```
 
@@ -85,7 +94,7 @@ python test_all.py
 7. **Reencrypt (2)** *(Sprint 3)* – passphrase rotation roundtrip, wrong current passphrase rejection
 8. **Audit log (4)** *(Sprint 3)* – audit entries for add/delete/login/export events
 
-### Unit — 39 tests in `tests/test_core.py`
+### Unit — 41 tests in `tests/test_core.py`
 
 | Group | Count | What it covers |
 |-------|-------|----------------|

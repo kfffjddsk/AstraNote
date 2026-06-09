@@ -1,97 +1,115 @@
 # Test Workflow
 
+> **Updated 2026-06-08 (Sprint 5D + UI coverage complete):** 715 tests pass, 1 skipped (microphone hardware). Coverage: 66% overall; core modules ≥ 90% branch; `plugins_dialog.py` 87%; `main_window.py` 61%.
+
 ## Testing Strategy
 
-BDD-first approach:
+Four complementary layers:
 
-- **BDD** (`tests/steps/test_steps.py`) — 17 Gherkin scenarios for all CLI CRUD behavior.
-- **Unit** (`tests/test_core.py`) — 39 tests for core modules + bounded stress test.
-- **CLI integration** (`tests/test_sprint1.py`, `tests/test_sprint2.py`) — Sprint 1 and Sprint 2 CLI, auth, and storage tests.
+| Layer | Files | Count | What it covers |
+|-------|-------|-------|----------------|
+| **BDD (Gherkin)** | `tests/steps/test_steps.py` + `tests/features/*.feature` | 30 | CLI behaviors end-to-end via Click runner |
+| **Unit** | `tests/test_core.py` | 41 | Note, DatabaseStore, EncryptionEngine, BlobCodec, injection hardening |
+| **Sprint integration** | `tests/test_sprint1.py` – `tests/test_sprint5b.py` | 474 | Per-sprint feature tests, auth, server, desktop GUI, sync UI |
+| **Desktop UI** | `tests/test_sprint4b.py`, `tests/test_sprint5_ui.py` | 121 | PySide6 widget behavior, selection guards, plugin dialogs |
 
-All BDD tests are Gherkin features in `tests/features/`. The full suite (Sprint 2 complete) totals 246 tests; 1 skipped on Windows (POSIX permission test).
+**Total:** 715 passing, 1 skipped (716 collected).
 
-## BDD Scenario Coverage
+---
 
-| Feature | Scenarios | Key assertions |
-|---------|-----------|----------------|
-| Add Notes | 3 | passphrase prompt behavior, invalid input rejection, empty store after invalid |
-| Get Notes | 4 | correct/wrong passphrase, no-prompt for unencrypted, not-found error |
-| List Notes | 2 | encrypted content hidden, no passphrase prompt, empty-list message |
-| Update Notes | 4 | content verified after update, wrong passphrase preserves original, no-prompt for unencrypted |
-| Delete Notes | 4 | note removed/preserved, wrong passphrase blocked, no-prompt for unencrypted |
+## Test Counts by File
 
-## Encryption Rules
+| File | Tests | Sprint / Focus |
+|------|-------|----------------|
+| `tests/steps/test_steps.py` | 30 | BDD — all 8 Gherkin feature files |
+| `tests/test_core.py` | 41 | Core unit tests + injection hardening |
+| `tests/test_sprint1.py` | 83 | CLI, WAL/retry, plugin integration, Alembic |
+| `tests/test_sprint2.py` | 106 | AccountStore, auth, session, hybrid storage |
+| `tests/test_sprint3.py` | 126 | Plugin hardening, audit, config, search/export, reencrypt |
+| `tests/test_sprint4.py` | 109 | AppController, MainWindow, PassphraseDialog, tray, idle-lock, plugin manifest |
+| `tests/test_sprint4b.py` | 77 | GUI completeness: tab widget, search bar, sync menu, settings dialog |
+| `tests/test_sprint5a.py` | 40 | Sync server MVP: auth, push, pull, JWT, account isolation |
+| `tests/test_sprint5a2.py` | 22 | Server hardening: HTTPS enforcement, rate limiting, Postgres DSN, concurrency |
+| `tests/test_sprint5b.py` | 38 | Desktop sync UI: SyncWorker, MergeWindow, OAuth callback, MainWindow sync actions |
+| `tests/test_sprint5_ui.py` | 44 | Sprint 5 UI coverage: selection guard, revert, plugin-missing, PluginsDialog |
+| **Total** | **716** | **715 pass + 1 skipped** |
 
-Passphrase required for encrypted note actions:
-- add, get, update, delete encrypted → prompt.
-- list → no prompt, shows `[Encrypted Note]`.
+---
+
+## BDD Scenario Coverage (30 scenarios, 8 feature files)
+
+| Feature file | Scenarios | Key assertions |
+|-------------|-----------|----------------|
+| `add_notes.feature` | 3 | passphrase prompt, invalid input rejection |
+| `get_notes.feature` | 4 | correct/wrong passphrase, not-found error |
+| `list_notes.feature` | 2 | encrypted content hidden, empty-list message |
+| `update_notes.feature` | 4 | content verified, wrong passphrase preserves original |
+| `delete_notes.feature` | 4 | note removed/preserved, wrong passphrase blocked |
+| `search_notes.feature` | 7 | plain match, alias match, encrypted excluded by default |
+| `reencrypt_note.feature` | 2 | passphrase rotation roundtrip, wrong-passphrase rejection |
+| `audit_log.feature` | 4 | audit entries for add/delete/login/export |
+
+---
+
+## Encryption Rules (validated by BDD)
+
+- add, get, update, delete encrypted → passphrase prompt.
+- list → no prompt; shows `[Encrypted Note]` or alias.
 - unencrypted operations → no prompt.
 
-## Stress Test
-
-Bounded 1001-note test in temp workspace. Validates add, reload, delete without corruption. Marked `stress` for selective runs.
+---
 
 ## Recommended Commands
 
-Run the full automated suite:
-
 ```powershell
+# Full suite
 python -m pytest -q
-```
 
-Run BDD tests only:
-
-```powershell
+# BDD scenarios only
 python -m pytest tests/steps/test_steps.py -v
-```
 
-Run the stress test only:
+# Desktop UI tests only (requires offscreen display)
+python -m pytest tests/test_sprint4b.py tests/test_sprint5_ui.py -v
 
-```powershell
+# With coverage
+python -m pytest --cov=src --cov-report=term-missing -q
+
+# Stress test (1001 notes)
 python -m pytest -q -m stress
-```
 
-Run the comprehensive project script:
-
-```powershell
+# Run the project test script
 python test_all.py
 ```
 
 ---
 
-## Sprint 1 Test Plan *(Historical — Sprint 1 complete)*
+## Coverage Targets
 
-> Sprint 1 is done. All items below were completed. See `docs/test-execution-evidence.md` for the Sprint 1 gate pass results.
+| Module group | Coverage | Branch |
+|---|---|---|
+| `src/core/` | ≥ 90% | ≥ 88% |
+| `src/server/` | ≥ 85% | ≥ 82% |
+| `src/desktop/plugins_dialog.py` | 87% | — |
+| `src/desktop/main_window.py` | 61% | — |
+| Overall `src/` | 66% | — |
 
-Sprint 1 items (B-31–B-40, B-83) required the following new test coverage.
+The desktop UI layer (PySide6 widgets) has the most coverage headroom. `tests/test_sprint5_ui.py` specifically targets the uncovered paths in `main_window.py` and `plugins_dialog.py` identified in the Sprint 5D coverage report.
 
-### New BDD Scenarios Required
+---
 
-| Backlog Item | Feature File | Scenario Description |
-|--------------|-------------|----------------------|
-| B-31 | `add_notes.feature` | Add three notes, delete the middle one, add a fourth — verify IDs do not collide |
-| B-32 | `add_notes.feature` | Add encrypted note with mismatched passphrase confirmation → error, no note stored |
-| B-32 | `add_notes.feature` | Add encrypted note with passphrase shorter than 8 chars → rejected |
-| B-33 | `delete_notes.feature` | Delete an unencrypted note → verify encrypted co-stored note is still retrievable |
-| B-33 | `update_notes.feature` | Update an unencrypted note → verify encrypted co-stored note content unchanged |
-| ~~B-35~~ | ~~*(new)*~~ ~~`persistence.feature`~~ | ~~Corrupt `notes.json` on load → backup created at `notes.json.bak`, empty store starts, warning shown~~ — **DROPPED** `[D-10]` (SQLite ACID replaces JSON corruption; B-35 dropped) |
-| B-36 | *(new)* `cli_validation.feature` | `--data-dir` pointing to an existing file → error with actionable message |
-| B-36 | `cli_validation.feature` | `--data-dir` pointing to a non-writable path → error with actionable message |
-| B-39 | `cli_validation.feature` | Simulate write failure on save → actionable error message, no crash |
+## Sprint Test Plan History
 
-### New Unit Tests Required
+Sprint plans and gate-pass evidence are in `docs/test-execution-evidence.md`. Each sprint section documents: result summary, test breakdown, new source files, modified source files, and key design decisions validated by the new tests.
 
-| Backlog Item | Test Class | Test Description |
-|--------------|-----------|-----------------|
-| B-31 | `TestDatabaseStore` *(renamed from `TestNoteStore` — D-10)* | `test_id_gap_safe_after_deletion` — add 3 notes, delete note 2, add a 4th, assert no ID collision |
-| B-34 | `TestDatabaseStore` (via CLI) | `test_short_passphrase_rejected` — assert ValueError or CLI error for passphrase < 8 chars |
-| B-83 | `TestPluginBase` *(new class)* | `test_plugin_registration` — register a plugin, assert it appears in registry |
-| B-83 | `TestPluginBase` | `test_duplicate_plugin_skipped` — register same plugin twice, assert warning, only one entry |
-| B-83 | `TestPluginBase` | `test_hook_dispatch` — register hook, trigger it, assert callback invoked |
-| B-83 | `TestPluginBase` | `test_hook_crash_does_not_kill_operation` — register hook that raises, assert exception caught |
-
-### Sprint 1 Exit Criteria for Tests
-- All items above written and passing before corresponding backlog item is marked Done
-- Total test count grows from 33 (baseline) to at least 46 (33 + 8 new BDD + 5 new unit) — *(B-35 dropped; 9→8 BDD scenarios)* `[D-10]`
-- All 33 existing Sprint Zero tests continue to pass (no regression)
-- `pytest -v` reports 0 failures
+| Sprint | Gate evidence section |
+|--------|----------------------|
+| Sprint 0 | Sprint Zero Re-implementation (2026-05-15) |
+| Sprint 1 | Sprint 1 Evidence |
+| Sprint 2 | Sprint 2 Evidence |
+| Sprint 3 | Sprint 3 Evidence |
+| Sprint 4 | Sprint 4 Evidence |
+| Sprint 4B/4C | Sprint 4B Evidence |
+| Sprint 5A.1 | Sprint 5A.1 Evidence |
+| Sprint 5A.2 | Sprint 5A.2 Evidence |
+| Sprint 5B | Sprint 5B Evidence |
+| Sprint 5D + UI | Sprint 5D / UI Coverage Evidence |

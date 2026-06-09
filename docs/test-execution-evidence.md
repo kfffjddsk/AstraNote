@@ -739,6 +739,124 @@ No new test file was introduced; behaviour was verified by:
 - Alembic migration chain for server schema (least-privilege role can't run DDL).
 - locust/k6 throughput run on top of the existing 10-thread correctness test.
 
+---
+
+## Sprint 5B Evidence
+
+### Sprint 5B Gate Pass (2026-06-05)
+
+**Date:** 2026-06-05
+**Baseline:** Sprint 5B — desktop sync UI + OAuth (B-87, B-89, B-90).
+**Environment:** Python 3.12.10, pytest 9.0.2, PySide6 (offscreen), FastAPI 0.136.1, Windows (PowerShell).
+**Command:** `.venv\Scripts\python.exe -m pytest -q --timeout=30`
+
+### Result: 669 PASSED / 0 FAILED / 1 SKIPPED
+
+| Suite | Count | Delta vs Sprint 5A.2 |
+|-------|-------|----------------------|
+| All Sprint 0 – 5A.2 suites | 631 | — |
+| **Sprint 5B — `test_sprint5b.py`** | **38** | **+38** new |
+| **Total** | **669 + 1 skipped** | **+38** |
+
+### Sprint 5B Test Breakdown (`tests/test_sprint5b.py` — 38 tests)
+
+| Class | Tests | Backlog | Coverage |
+|-------|-------|---------|----------|
+| `TestMergeWindow` | 5 | B-90 | Window title, resolved content, Use Local button, local_id/remote_modified_at exposed |
+| `TestSyncWorkerPush` | 4 | B-90 | Accepted notes marked synced; nothing-pending skip; SyncError signal; AuthError class name in signal |
+| `TestSyncWorkerPull` | 5 | B-90 | Upsert new remote note; last-write-wins; conflict detected; empty pull; SyncError signal |
+| `TestSyncWorkerBoth` | 2 | B-90 | push-then-pull sequence; push error does not prevent finished signal |
+| `TestOAuthCallbackEndpoint` | 6 | B-87 | No-client-id → 501; happy path returns token; new account created; existing account reused; bad exchange → 400; missing id_token → 400 |
+| `TestSyncClientCallbackExchange` | 3 | B-87 | Happy path; non-2xx → SyncError; network error → SyncError |
+| `TestEmailToUsername` | 4 | B-87 | Domain stripped; dots → underscores; short local-part padded; no @ uses whole string |
+| `TestGetOrCreateOAuthAccount` | 3 | B-87 | New account from email; idempotent second call; username matches email local-part |
+| `TestMainWindowSyncUI` | 6 | B-89 | Sync Now action exists; shortcut Ctrl+Shift+S; sign-in/sign-out actions; guest label on startup; info dialog when no URL; logout clears status |
+
+### New Source Files (Sprint 5B)
+
+| File | Purpose |
+|------|---------|
+| `src/desktop/sync/__init__.py` | Package init. |
+| `src/desktop/sync/worker.py` | `SyncWorker` (QThread) — push/pull/both with signals: `finished`, `progress`, `conflict_detected`, `failed`. |
+| `src/desktop/sync/merge_window.py` | `MergeWindow` — 2-pane conflict resolution with Use Local and Save Final buttons. |
+| `src/desktop/sync/account_dialog.py` | `SyncLoginDialog` — Google PKCE + local login tabs; `_OAuthCallbackServer` for PKCE redirect. |
+| `src/server/routers/auth.py` | Extended with `POST /auth/callback` for OAuth PKCE exchange. |
+| `tests/test_sprint5b.py` | 38 tests (above). |
+
+### Key Design Decisions Validated by Sprint 5B Tests
+
+- **SyncWorker signals over return values.** QThread cannot return values from `run()`; all outcomes (success, conflict, error) are communicated via Qt signals. `TestSyncWorkerBoth::test_both_emits_finished_ok_even_after_push_error` confirms the `finished` signal fires regardless of individual step errors.
+- **MergeWindow exposes resolved_content as a property.** Tests obtain it without simulating button clicks; the "Use Local" button simply copies left-pane content to the right pane. `TestMergeWindow::test_use_local_copies_local_to_right_pane` validates this.
+- **OAuth callback registered as server-assigned account.** `get_or_create_oauth_account` creates a new account on first callback and returns the same one on subsequent calls. `TestGetOrCreateOAuthAccount::test_existing_account_returned_on_second_call` enforces idempotency.
+- **`/auth/callback` returns 501 when no OAuth client is configured.** `bundled_defaults.py` provides a build-time patchable credential chain; without it the endpoint correctly signals "not configured." Validated by `TestOAuthCallbackEndpoint::test_callback_without_client_id_returns_501`.
+
+---
+
+## Sprint 5D / UI Coverage Evidence
+
+### Sprint 5D + Sprint 5 UI Gate Pass (2026-06-08)
+
+**Date:** 2026-06-08
+**Baseline:** Sprint 5D architecture refactoring + Sprint 5 UI coverage pass (B-122 – B-130; `tests/test_sprint5_ui.py`).
+**Environment:** Python 3.12.10, pytest 9.0.2, PySide6 offscreen, SQLAlchemy 2.0.49, Windows (PowerShell).
+**Command:** `.venv\Scripts\python.exe -m pytest -q --timeout=30`
+
+### Result: 715 PASSED / 0 FAILED / 1 SKIPPED
+
+```
+715 passed, 1 skipped in 57.19s
+```
+
+| Suite | Count | Delta vs Sprint 5B |
+|-------|-------|---------------------|
+| All Sprint 0 – 5B suites | 669 | — |
+| **Sprint 5D UI — `test_sprint5_ui.py`** | **44** | **+44** new |
+| **Sprint 4B (included in 5B total)** | — | — |
+| **Total** | **715 + 1 skipped** | **+44** |
+
+### Sprint 5D Architecture Changes (no new test file — refactoring only)
+
+Sprint 5D decomposed existing monolithic modules without introducing new user-facing behavior. Existing test files remained green; architecture refactoring verified by running the full suite post-refactor.
+
+| Backlog Item | Change |
+|---|---|
+| B-122 | `notes.py` → `note.py`, `store.py`, `container.py`, `editor_protocol.py`; Alembic migration c7d2a8f1b9e4 |
+| B-123 | `PluginContext` — restricted API surface passed to plugins on `initialize()` |
+| B-124 | `PluginSecurity` — AST import scanner for untrusted plugin code |
+| B-125 | `PluginLoader` + `PluginConsentDialog` — first-run consent before activating unverified plugins |
+| B-126 | `MainWindow` decomposed into `note_editor.py`, `dialogs.py`, `theme.py`, `settings_dialog.py`, `plugins_dialog.py`, `plugin_loader.py` |
+| B-127 | Sync package consolidated into `src/desktop/sync/` |
+| B-128 | `gpu_acceleration` config key; Chromium `--disable-gpu` flag set at startup |
+| B-129 | Passphrase minimum-length enforcement removed from `KeyManager` |
+| B-130 | Bundled plugins moved to `src/plugins/` |
+
+### Sprint 5 UI Test Breakdown (`tests/test_sprint5_ui.py` — 44 tests)
+
+| Class | Tests | Target | Coverage hit |
+|-------|-------|--------|--------------|
+| `TestNoteSelectionGuard` | 8 | `_reverting_selection` re-entry guard | Lines 1289–1290, 1373–1374 |
+| `TestRevertNoteSelection` | 5 | `_revert_note_selection` both branches | Lines 1354–1363 |
+| `TestMissingPluginSelection` | 8 | Plugin-missing → revert + warn | Lines 1316–1327 |
+| `TestNoteItemClicked` | 3 | All `_on_note_item_clicked` branches | Lines 1373–1385 |
+| `TestPluginsDialogConstruct` | 6 | `PluginsDialog` construction + `_populate_installed` | `plugins_dialog.py` §populate |
+| `TestPluginsDialogFilter` | 6 | `_apply_filter`, `_on_installed_selected`, `_on_installed_check_changed` | `plugins_dialog.py` §filter |
+| `TestPluginsDialogApply` | 8 | `_on_apply` all branches incl. MIME-open block | `plugins_dialog.py` §apply |
+
+### Coverage After Sprint 5D + UI Tests
+
+| Module | Coverage | Notes |
+|---|---|---|
+| `src/desktop/plugins_dialog.py` | **87%** | Was 8%; `_on_apply`, `_populate_installed`, `_apply_filter` all now covered |
+| `src/desktop/main_window.py` | **61%** | Up from ~45%; selection guard and plugin-missing paths covered |
+| `src/` overall | **66%** | Up from 63% (Sprint 5A.2 baseline) |
+
+### Key Design Decisions Validated by Sprint 5 UI Tests
+
+- **`_reverting_selection` flag over `blockSignals`.** `blockSignals(True)` on `QListWidget` does not block the underlying `QItemSelectionModel` signals used for visual repaint. The boolean flag prevents re-entrant `_on_note_selected` execution without blocking Qt's paint path. `TestNoteSelectionGuard::test_on_note_selected_noop_while_reverting` directly verifies the guard.
+- **`selectionModel().clearSelection()` over `setCurrentRow(-1)`.** Qt6 may clamp `setCurrentRow(-1)` to row 0 inside a signal handler, auto-opening the first note. `TestRevertNoteSelection::test_revert_to_none_clears_selection` confirms the selection is fully cleared with no items selected.
+- **Plugin-missing does not open a tab.** `TestMissingPluginSelection::test_missing_plugin_does_not_open_tab` and `test_clears_selection_when_no_previous` together verify the "no previous item" case: no tab opens AND the first note in the list does NOT auto-open (the original bug).
+- **`PluginsDialog._on_apply` MIME-open block.** `TestPluginsDialogApply::test_apply_blocked_when_mime_is_open` verifies that disabling a plugin whose MIME type is currently open shows a warning and leaves the plugin active. `test_blocked_item_reverted_to_checked` confirms the checkbox is flipped back.
+
 
 
 

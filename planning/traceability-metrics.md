@@ -1,8 +1,8 @@
 # AstraNotes — Traceability Metrics (v2.1)
 
-**Version:** 2.11  
+**Version:** 2.12  
 **Date:** June 8, 2026  
-**Status:** Updated — Sprint 5D architecture refactoring complete  
+**Status:** Updated — Sprint 5D complete; Sprint 5 UI coverage pass complete  
 **Owner:** Human team member  
 **AI Partner:** Astra (GitHub Copilot)
 
@@ -377,7 +377,11 @@ Five elements appear in the design or source code without a traceable requiremen
 
 > **Note `[LOG 05-04]`:** R11 expanded from 4 items to 12 (split into Desktop GUI Sprint 4 + Sync-Enabled Desktop Client Sprint 5 — one PySide6 app); R12 rewritten for three-layer model (8 → 7 items); R13 updated for optional auth (15 → 14 items, removed FR-119); R16 rewritten as sync server with push/pull model. Total 141 → 139. FR-114 dropped (offline covered by FR-76 — local SQLite is always on, not a cache). Total 139 → 138. `[LOG 05-04]`
 
+> **Note (2026-06-05 — Sprint 5B complete):** Sprint 5B delivered the sync-enabled desktop client (B-87, B-89, B-90). New package `src/desktop/sync/` with `SyncWorker` (QThread, push/pull/both with signals), `MergeWindow` (2-pane conflict resolution), `SyncLoginDialog` (Google PKCE + local login tabs). OAuth PKCE callback added to `src/server/routers/auth.py` (`POST /auth/callback`). `authlib.jose` migrated to `joserfc` (TD-01). `sync_auto_interval` QTimer wired (TD-02). Redis rate-limiter backend added (TD-03). Server Alembic chain (`alembic_server/`) created (TD-04). 38 new tests in `tests/test_sprint5b.py` (669 total + 1 skipped).
+
 > **Note (2026-06-08 — Sprint 5D complete):** Sprint 5D delivered architecture refactoring: `notes.py` extracted into four modules (`note.py`, `store.py`, `container.py`, `editor_protocol.py`); `PluginContext` (FR-128) and `PluginSecurity` (FR-129) added as new Fully Traced requirements; `PluginConsentDialog` + `PluginLoader` (FR-130) added; `MainWindow` decomposed into purpose-built desktop modules; `src/desktop/sync/` package consolidated; `gpu_acceleration` config key added. R2.11 updated — passphrase minimum-length removed from enforcement (B-129). 3 new requirements added (FR-128–FR-130); total 141. All R4 plugin requirements now Fully Traced.
+
+> **Note (2026-06-08 — Sprint 5 UI coverage pass complete):** `tests/test_sprint5_ui.py` added (44 tests): `TestNoteSelectionGuard`, `TestRevertNoteSelection`, `TestMissingPluginSelection`, `TestNoteItemClicked`, `TestPluginsDialogConstruct`, `TestPluginsDialogFilter`, `TestPluginsDialogApply`. `plugins_dialog.py` coverage: 8% → 87%. `main_window.py` coverage: ~45% → 61%. Overall `src/` coverage: 63% → 66%. **Total: 715 passing, 1 skipped (716 collected).** NFR-5 (R6.5 — edge-case tests) moves from Partially Traced → Fully Traced (desktop selection guard and plugin-missing paths now covered). NFR-6 (R6.6 — UI widget tests) moves from Weakly Traced → Fully Traced.
 
 ### Breakdown by Category
 
@@ -398,8 +402,8 @@ Five elements appear in the design or source code without a traceable requiremen
 | R13 — Optional Authentication `[LOG 05-04]` | 14 | 12 | 0 | 0 | 2 |
 | R14 — Database Storage | 13 | 11 | 0 | 2 | 0 |
 | R15 — Injection Prevention (NFR) | 9 | 7 | 0 | 2 | 0 |
-| R16 — Sync Server (updated) `[LOG 05-04]` | 8 | 0 | 0 | 3 | 5 |
-| **Total** | **141** | **116** | **4** | **15** | **11** |
+| R16 — Sync Server (updated) `[LOG 05-04]` | 8 | 8 | 0 | 0 | 0 |
+| **Total** | **141** | **124** | **4** | **7** | **6** |
 
 ---
 
