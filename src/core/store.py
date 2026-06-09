@@ -34,6 +34,7 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from src.core.container import (
     Container,
+    ContainerError,
     ContainerValidationError,
     ValidationSeverity,
 )
@@ -122,20 +123,32 @@ class _NoteRow(_Base):
 
 
 def _frame_plaintext(content: str) -> bytes:
-    """Wrap plaintext *content* in a Container and validate it.
+    """Wrap *content* in a Container with the correct MIME type.
+
+    The MIME type is inferred from the content so that binary notes (audio,
+    video) are stored with their real type instead of ``text/plain``.  This
+    allows the search layer to skip non-text payloads without decoding them.
 
     Raises :class:`~src.core.container.ContainerValidationError` (ERROR) if
-    the resulting container is corrupt — which should never happen with fresh
-    data but guards against future bugs.
+    the resulting container is corrupt.
     """
+    if content.startswith("data:audio/"):
+        mime = "audio/basic"
+    elif content.startswith("data:video/"):
+        mime = "video/mp4"
+    elif content.startswith("<"):
+        mime = "text/html"
+    else:
+        mime = "text/plain"
+
     payload = content.encode("utf-8")
-    raw = Container.frame(payload, "text/plain", flags=0)
+    raw = Container.frame(payload, mime, flags=0)
     header, payload_back = Container.unframe(raw)
     result = Container.validate(header, payload_back)
     if result.is_error:
         raise ContainerValidationError(result.severity, result.message)
     if result.is_warning:
-        logger.warning("Container warning when framing plaintext: %s", result.message)
+        logger.warning("Container warning when framing content: %s", result.message)
     return raw
 
 
@@ -423,9 +436,21 @@ class DatabaseStore:
                         content_match = False
                         if not title_match and row.container:
                             try:
-                                text = _unframe_plaintext(row.container, row.note_id)
-                                content_match = q_lower in text.lower()
-                            except ContainerValidationError:
+                                header, payload = Container.unframe(row.container)
+                                # Skip non-text MIME types (audio/*, video/*):
+                                # searching binary payloads produces false
+                                # positives from base64 character sequences.
+                                # Also skip legacy containers written before
+                                # per-MIME framing was added — detect them by
+                                # the data-URL prefix in the decoded payload.
+                                mime = header.mime_type
+                                if not mime.startswith(("audio/", "video/")):
+                                    text = payload.decode("utf-8", errors="replace")
+                                    if not text.startswith(
+                                        ("data:audio/", "data:video/")
+                                    ):
+                                        content_match = q_lower in text.lower()
+                            except (ContainerError, ContainerValidationError):
                                 pass
                         if title_match or content_match:
                             results.append(_row_to_note(row))
