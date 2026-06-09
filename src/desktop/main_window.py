@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QTimer, Qt, QUrl
+from PySide6.QtCore import QItemSelectionModel, QModelIndex, QTimer, Qt, QUrl
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
@@ -271,6 +271,7 @@ class MainWindow(QMainWindow):
         self._note_list.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._note_list.currentItemChanged.connect(self._on_note_selected)
         self._note_list.itemClicked.connect(self._on_note_item_clicked)
+        self._reverting_selection: bool = False
         left_layout.addWidget(self._note_list)
         left.setMinimumWidth(160)
         splitter.addWidget(left)
@@ -1285,6 +1286,8 @@ class MainWindow(QMainWindow):
         current: Optional[QListWidgetItem],
         previous: Optional[QListWidgetItem],
     ) -> None:
+        if self._reverting_selection:
+            return
         if current is None:
             return
         note_id: Optional[str] = current.data(Qt.ItemDataRole.UserRole)
@@ -1340,14 +1343,24 @@ class MainWindow(QMainWindow):
         self.reset_idle_timer()
 
     def _revert_note_selection(self, previous: Optional[QListWidgetItem]) -> None:
-        """Restore the note list highlight to *previous* (or clear it)."""
-        self._note_list.blockSignals(True)
-        if previous is not None:
-            self._note_list.setCurrentItem(previous)
-        else:
-            self._note_list.setCurrentRow(-1)
-            self._note_list.clearSelection()
-        self._note_list.blockSignals(False)
+        """Restore the note list highlight to *previous* (or clear it).
+
+        The flag prevents _on_note_selected from re-entering while we
+        programmatically move the selection.  blockSignals is intentionally
+        NOT used: the selection model must be free to emit its own signals so
+        the view repaints correctly.  setCurrentRow(-1) is also avoided because
+        Qt6 may clamp it to row 0 inside a signal handler.
+        """
+        self._reverting_selection = True
+        try:
+            if previous is not None:
+                self._note_list.setCurrentItem(previous)
+            else:
+                sm = self._note_list.selectionModel()
+                sm.clearSelection()
+                sm.setCurrentIndex(QModelIndex(), QItemSelectionModel.SelectionFlag.Clear)
+        finally:
+            self._reverting_selection = False
 
     def _on_note_item_clicked(self, item: QListWidgetItem) -> None:
         """Re-click on an already-selected note: focus its existing tab.
@@ -1357,6 +1370,8 @@ class MainWindow(QMainWindow):
         handle only the re-click case here — new-item navigation is handled
         exclusively by ``_on_note_selected`` via ``currentItemChanged``.
         """
+        if self._reverting_selection:
+            return
         note_id: Optional[str] = item.data(Qt.ItemDataRole.UserRole)
         if not note_id:
             return
