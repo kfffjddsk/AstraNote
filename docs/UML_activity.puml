@@ -1,0 +1,147 @@
+@startuml AstraNotes – Activity Diagram
+
+skinparam activityBackgroundColor    #FFFFFF
+skinparam activityBorderColor        #666666
+skinparam activityDiamondBackgroundColor #FFF8EC
+skinparam activityDiamondBorderColor #888888
+skinparam arrowColor                 #444444
+skinparam swimlaneBackgroundColor    #F5F8FC
+skinparam noteBackgroundColor        #FFFDE7
+skinparam noteBorderColor            #BBAA00
+skinparam shadowing false
+skinparam defaultFontSize 11
+
+title AstraNotes – Activity Diagram\nPlugin-Aware Note Selection  (currentItemChanged → itemClicked)
+
+|User|
+start
+:Click note item in the list;
+
+|Qt / QListWidget|
+:Emit currentItemChanged(current, previous);
+
+|MainWindow · _on_note_selected|
+if (_reverting_selection == True?) then (yes)
+  note right : Re-entry guard.\nProgrammatic selection revert in\nprogress — ignore this signal.
+  :return;
+  stop
+endif
+
+if (current is None?) then (yes)
+  note right : Row cleared\nprogrammatically.
+  :return;
+  stop
+endif
+
+:note_id = current.data(UserRole);
+if (note_id is None?) then (yes)
+  :return;
+  stop
+endif
+
+:note = store.get(note_id);
+if (note not found?) then (yes)
+  :return;
+  stop
+endif
+
+if (security_level == "high"\nAND _current_note is not None\nAND switching to a different note?) then (yes)
+  :_cached_passphrase = None;
+  note right : Clears cached passphrase\nwhen switching notes (high security).
+endif
+
+if (note.encrypted == False?) then (yes — unencrypted)
+  :mime = _mime_for_content(note.content);
+  if (mime starts with "audio/" or "video/"?) then (yes)
+    :plugin = _find_editor_for_mime(mime);
+    if (plugin found in _plugins?) then (no)
+      |MainWindow · _revert_note_selection|
+      :_reverting_selection = True;
+      if (previous is not None?) then (yes)
+        :selectionModel.setCurrentItem(previous);
+        note right : previous note rehighlighted.\nallows Qt to repaint normally.
+      else (no)
+        :selectionModel.clearSelection()\nselectionModel.setCurrentIndex(\n  QModelIndex(), Clear);
+        note right : No previous item — clear\nhighlight entirely.\nAvoids Qt6 row-0 clamp bug\n(never calls setCurrentRow(-1)).
+      endif
+      :_reverting_selection = False;
+
+      |MainWindow · _on_note_selected|
+      :_warn_plugin_missing(note.title, mime)\n→ QMessageBox.warning() modal;
+      note right : At this point the list\nhighlight is already correct\nbefore the dialog opens.
+      :return;
+      stop
+    endif
+  endif
+endif
+
+:editor = _get_or_open_tab(note);
+note right : Reuses existing PluginEditorHost\nor creates a new tab for the note.
+
+if (editor is None?) then (yes)
+  note right : Media note whose plugin\ndisappeared between check and open.\nSilent — caller already warned.
+  |MainWindow · _revert_note_selection|
+  :_revert_note_selection(previous);
+  |MainWindow · _on_note_selected|
+  :return;
+  stop
+endif
+
+:_current_note = note;
+note right : Only committed AFTER\nsuccessful tab open.
+
+if (note.encrypted == True\nAND _cached_passphrase is not None?) then (yes)
+  :result = _try_decrypt_note(note)\n→ EncryptionEngine(passphrase).decrypt();
+  if (decryption succeeded?) then (yes)
+    :real_title, decrypted_content = result;
+    :target_mime = _mime_for_content(decrypted_content);
+    :editor = _retarget_tab_editor(\n  note, editor, target_mime);
+    if (editor is None?) then (yes)
+      note right : Plugin missing for\ndecrypted MIME type.
+      :return;
+      stop
+    endif
+    :editor.load(note, decrypted_content)\neditor.set_title(real_title);
+    :reset_idle_timer();
+    stop
+  else (failed — wrong passphrase)
+    note right : Falls through to encrypted\nplaceholder load.
+  endif
+endif
+
+:editor.load(note, decrypted_content=None);
+note right : Encrypted notes show a locked\nplaceholder until Unlock is clicked.
+:reset_idle_timer();
+
+|Qt / QListWidget|
+:Emit itemClicked(item);
+note right : Fires on every click\n(including re-clicks).
+
+|MainWindow · _on_note_item_clicked|
+if (_reverting_selection == True?) then (yes)
+  note right : Selection is being reverted\n(e.g. a rapid double-action).\nSkip entirely.
+  :return;
+  stop
+endif
+
+:note_id = item.data(UserRole);
+if (note_id is None?) then (yes)
+  :return;
+  stop
+endif
+
+if (_current_note is None\nOR _current_note.id ≠ note_id?) then (yes)
+  note right : Different note — already handled\nby currentItemChanged above.\nDo nothing.
+  :return;
+  stop
+endif
+
+:editor = _note_editors.get(note_id);
+if (editor in tab widget?) then (yes)
+  :_tab_widget.setCurrentIndex(idx);
+  note right : Re-click on already-selected note:\nbring its tab to front without reloading.
+endif
+
+stop
+
+@enduml

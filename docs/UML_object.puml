@@ -1,0 +1,168 @@
+@startuml AstraNotes – Object Diagram
+
+skinparam objectBackgroundColor #FFFFFF
+skinparam objectBorderColor     #888888
+skinparam arrowColor            #444444
+skinparam noteBackgroundColor   #FFFDE7
+skinparam noteBorderColor       #BBAA00
+skinparam shadowing false
+skinparam defaultFontSize 11
+
+title AstraNotes – Object Diagram\n(runtime snapshot: voice note active · VideoPlugin disabled · one encrypted note locked)
+
+' ─── Registry ────────────────────────────────────────────
+object "registry : PluginRegistry" as registry {
+  _plugins      = [tiptap, voice]
+  _all_plugins  = [tiptap, voice, video]
+  _hooks        = {}
+}
+
+object "tiptap : TiptapPlugin" as tiptap {
+  name      = "TiptapPlugin"
+  version   = "1.0.0"
+  mime_types = ["text/html"]
+}
+
+object "voice : VoicePlugin" as voice {
+  name      = "VoicePlugin"
+  version   = "1.0.0"
+  mime_types = ["audio/basic"]
+}
+
+object "video : VideoPlugin" as video {
+  name      = "VideoPlugin"
+  version   = "1.0.0"
+  mime_types = ["video/mp4"]
+}
+
+' ─── Config ──────────────────────────────────────────────
+object "config : ConfigStore" as config {
+  theme            = "light"
+  font_size        = 12
+  security_level   = "high"
+  allowed_plugins  = ["TiptapPlugin", "VoicePlugin"]
+  sync_server_url  = "https://sync.example.com"
+  auto_login       = "no"
+}
+
+' ─── Store ───────────────────────────────────────────────
+object "store : DatabaseStore" as store {
+  data_dir = ".astranotes/"
+  ' WAL-mode SQLite
+}
+
+' ─── Notes ───────────────────────────────────────────────
+object "voiceNote : Note" as voiceNote {
+  id          = "a1b2c3"
+  title       = "Team standup recording"
+  content     = "audio/basic;base64,SUQzBA..."
+  encrypted   = false
+  account_id  = null
+}
+
+object "textNote : Note" as textNote {
+  id          = "d4e5f6"
+  title       = "Sprint 5 retrospective"
+  content     = "<h1>Retro</h1><p>What went well..."
+  encrypted   = false
+  account_id  = null
+}
+
+object "videoNote : Note" as videoNote {
+  id          = "g7h8i9"
+  title       = "Demo recording"
+  content     = "video/mp4;base64,AAAAIGZ0..."
+  encrypted   = false
+  account_id  = null
+}
+
+object "encNote : Note" as encNote {
+  id          = "j0k1l2"
+  title       = "Personal journal"
+  content     = null
+  encrypted   = true
+  account_id  = "user-001"
+}
+
+' ─── MainWindow ──────────────────────────────────────────
+object "window : MainWindow" as window {
+  _current_note        = voiceNote
+  _reverting_selection = false
+  _cached_passphrase   = null
+}
+
+' ─── Open editors (tabs) ─────────────────────────────────
+object "voiceEditor : PluginEditorHost" as voiceEditor {
+  ' hosts VoiceEditorWidget
+  is_encrypted = false
+}
+
+object "textEditor : PluginEditorHost" as textEditor {
+  ' hosts TiptapEditorWidget
+  is_encrypted = false
+}
+
+object "encEditor : PluginEditorHost" as encEditor {
+  ' locked – shows encrypted placeholder
+  is_encrypted = true
+}
+
+' ─── AppController ───────────────────────────────────────
+object "controller : AppController" as controller {
+  config   = config
+  store    = store
+  lock_mgr = lockMgr
+  registry = registry
+}
+
+object "lockMgr : AppLockManager" as lockMgr {
+  ' PID file: .astranotes/astranotes.lock
+  ' acquired = true
+}
+
+' ─── Links ───────────────────────────────────────────────
+
+controller --> config
+controller --> store
+controller --> registry
+controller --> lockMgr
+controller --> window : creates & shows
+
+window --> registry
+window --> store
+window --> config
+window --> voiceNote  : _current_note
+
+window --> voiceEditor : _note_editors["a1b2c3"]
+window --> textEditor  : _note_editors["d4e5f6"]
+window --> encEditor   : _note_editors["j0k1l2"]
+
+voiceEditor --> voiceNote  : loaded note
+textEditor  --> textNote   : loaded note
+encEditor   --> encNote    : loaded note (locked)
+
+registry --> tiptap : _plugins[0]\n_all_plugins[0]
+registry --> voice  : _plugins[1]\n_all_plugins[1]
+registry --> video  : _all_plugins[2]
+
+note bottom of videoNote
+  No PluginEditorHost open for this note.
+  VideoPlugin is in _all_plugins but not _plugins
+  (excluded by allowed_plugins config).
+  Clicking this note calls _warn_plugin_missing()
+  and _revert_note_selection() — no tab opens.
+end note
+
+note right of video
+  disabled: absent from _plugins
+  still visible in Plugin Admin via _all_plugins
+  Re-enabling via Apply re-inserts into _plugins
+end note
+
+note right of encEditor
+  Passphrase not yet entered this session.
+  Unlock button shown; content = null.
+  _cached_passphrase = null on window.
+end note
+
+@enduml

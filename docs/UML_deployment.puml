@@ -1,0 +1,158 @@
+@startuml AstraNotes – Deployment Diagram
+
+skinparam nodeBackgroundColor       #F5F8FC
+skinparam nodeBorderColor           #444444
+skinparam componentBackgroundColor  #FFFFFF
+skinparam componentBorderColor      #888888
+skinparam databaseBackgroundColor   #EEF6FF
+skinparam databaseBorderColor       #5577AA
+skinparam fileBackgroundColor       #FFFDE7
+skinparam fileBorderColor           #BBAA00
+skinparam arrowColor                #444444
+skinparam arrowThickness            1.2
+skinparam noteBackgroundColor       #FFFDE7
+skinparam noteBorderColor           #BBAA00
+skinparam shadowing false
+skinparam defaultFontSize 11
+
+title AstraNotes – Deployment Diagram
+
+' ═══════════════════════════════════════════════
+' USER MACHINE
+' ═══════════════════════════════════════════════
+node "User Machine\n(Windows / macOS / Linux)" as UM {
+
+  node "Python 3.11+ Process" as PROC {
+
+    component "CLI  (Click)\nsrc.cli" as C_CLI {
+    }
+
+    component "Desktop GUI  (PySide6)\nsrc.desktop\n  AppController\n  MainWindow\n  plugin_loader\n  SyncWorker (QThread)" as C_GUI {
+    }
+
+    component "Core  (no Qt / no FastAPI)\nsrc.core\n  DatabaseStore · EncryptionEngine\n  PluginRegistry · ConfigStore\n  AccountStore · SessionManager\n  SyncClient · AuditLogger" as C_CORE {
+    }
+
+    component "Bundled Plugins\nsrc.plugins\n  TiptapPlugin  (text/html)\n  VoicePlugin   (audio/basic)\n  VideoPlugin   (video/mp4)" as C_PLUGINS {
+    }
+
+    component "QWebEngineView\n(Chromium renderer)" as C_WEB {
+      note as WN
+        Hosts TiptapEditorWidget
+        (ProseMirror / Tiptap JS).
+        GPU off by default to avoid
+        first-render flash.
+        Toggle: gpu_acceleration=yes
+      end note
+    }
+
+    C_CLI    ..> C_CORE    : imports
+    C_GUI    ..> C_CORE    : imports
+    C_PLUGINS ..> C_CORE   : plugin API only\n(PluginBase, PluginContext)
+    C_GUI    --> C_WEB     : embeds
+  }
+
+  folder ".astranotes/\n(project root)" as DIR {
+
+    database "notes.db\n(SQLite WAL mode)" as DB {
+      note right : NoteRow · _NoteRow\nAES-256-GCM payload\nno plaintext on disk
+    }
+
+    file "config.json" as CFG {
+      note right : theme · font · allowed_plugins\naccent_color · security_level\nsync_server_url · auto_login
+    }
+
+    file "astranotes.lock\n(PID file)" as PID {
+      note right : Prevents two GUI processes\nopening the same database
+    }
+
+    folder "plugins/\n(user-installed)" as UPLUG {
+      note right : Unverified plugins land here.\nConsent dialog on first load.\nAST-scanned for undeclared imports.
+    }
+  }
+
+  PROC ..> DB    : SQLAlchemy\n(read/write)
+  PROC ..> CFG   : JSON read/write
+  PROC ..> PID   : acquire on startup\nrelease on exit
+  PROC ..> UPLUG : discovers at launch
+
+  note bottom of DIR
+    Override via --data-dir flag or
+    ASTRANOTES_DATA_DIR env var
+  end note
+}
+
+' ═══════════════════════════════════════════════
+' NETWORK
+' ═══════════════════════════════════════════════
+cloud "Internet\n(optional)" as NET {
+}
+
+' ═══════════════════════════════════════════════
+' SYNC SERVER  (optional, self-hosted)
+' ═══════════════════════════════════════════════
+node "Sync Server\n(optional — self-hosted)" as SRV {
+
+  node "Uvicorn Process\n(python -m uvicorn src.server.app:create_app --factory)" as UVCN {
+
+    component "FastAPI App\nsrc.server.app\n  create_app() factory" as S_APP {
+    }
+
+    component "Routers\n  POST /auth/register\n  POST /auth/login\n  POST /sync/push\n  GET  /sync/pull?since=<ts>" as S_ROUTERS {
+    }
+
+    component "HTTPS Enforcement\nMiddleware" as S_HTTPS {
+      note right : enforced in production\ndisabled via ASTRANOTES_DEV_HTTP=1
+    }
+
+    component "JWT Helpers\n(HS256 · 24h expiry)" as S_JWT {
+    }
+
+    component "AccountRateLimiter\n(60 req/min default)" as S_RL {
+      note right : In-process by default.\nOptional Redis backend via\nASTRANOTES_REDIS_URL
+    }
+
+    S_APP --> S_ROUTERS
+    S_APP --> S_HTTPS
+    S_ROUTERS ..> S_JWT
+    S_ROUTERS ..> S_RL
+  }
+
+  database "Server DB\n(SQLite dev / PostgreSQL prod)" as SDB {
+    note right : ServerNoteRow\n(id, owner_id, payload, updated_at)\nset via ASTRANOTES_SYNC_DATABASE_URL
+  }
+
+  folder "server_data/\n(blob / session files)" as SDATA {
+  }
+
+  UVCN ..> SDB
+  UVCN ..> SDATA
+
+  note top of SRV
+    Required env var:
+      ASTRANOTES_JWT_SECRET
+
+    Optional env vars:
+      ASTRANOTES_SYNC_DATABASE_URL
+      ASTRANOTES_SYNC_DATA_DIR
+      ASTRANOTES_RATE_LIMIT_PER_MIN
+      ASTRANOTES_DB_POOL_SIZE
+      ASTRANOTES_REDIS_URL
+      ASTRANOTES_GOOGLE_CLIENT_ID/SECRET
+  end note
+}
+
+' ═══════════════════════════════════════════════
+' CROSS-NODE COMMUNICATION
+' ═══════════════════════════════════════════════
+PROC --> NET : HTTPS REST\nBearer JWT token
+NET  --> UVCN : routes to\n(default: port 8000)
+
+note bottom of NET
+  SyncClient.push() → POST /sync/push  (notes payload)
+  SyncClient.pull() → GET  /sync/pull?since=<iso-ts>
+  SyncClient.login()→ POST /auth/login  (returns JWT)
+  Google OAuth PKCE → callback via _OAuthCallbackServer
+end note
+
+@enduml

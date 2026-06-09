@@ -1,0 +1,468 @@
+@startuml AstraNotes – Package Architecture
+
+' ============================================================
+' Skinparams
+' ============================================================
+skinparam packageStyle rectangle
+skinparam packageBorderColor #444444
+skinparam classBorderColor   #888888
+skinparam classBackgroundColor #FFFFFF
+skinparam interfaceBackgroundColor #EEF6FF
+skinparam abstractClassBackgroundColor #FFF8EC
+skinparam packageBackgroundColor    #F5F8FC
+skinparam noteBackgroundColor       #FFFDE7
+skinparam noteBorderColor           #BBAA00
+skinparam arrowColor  #444444
+skinparam arrowThickness 1.2
+skinparam shadowing false
+skinparam defaultFontSize 11
+
+title AstraNotes – Package Diagram  (Sprint 5 · current master)
+
+' ============================================================
+' PACKAGE: src.core   ← no Qt, no FastAPI
+' ============================================================
+package "src.core" as CORE {
+
+  ' ── Data ──────────────────────────────────────────────
+  class Note << dataclass >> {
+    + id : str
+    + title : str
+    + content : Optional[str]
+    + encrypted : bool
+    + account_id : Optional[str]
+    + created_at : datetime
+    + updated_at : datetime
+  }
+
+  class DatabaseStore {
+    + add(note) : Note
+    + get(id) : Optional[Note]
+    + update(note) : Note
+    + delete(id) : None
+    + list() : list[Note]
+    + search(query) : list[Note]
+    + list_pending_push() : list[Note]
+    + upsert_remote(note) : Note
+    + mark_synced(id) : None
+    + associate_anonymous_notes(account_id)
+  }
+  note bottom of DatabaseStore : SQLAlchemy WAL-mode SQLite\nsrc.core.store — notes.py is a façade
+
+  class Container {
+    + pack(payload : dict) : bytes
+    + unpack(data : bytes) : dict
+    + validate(data) : ValidationResult
+  }
+
+  class BlobCodec {
+    + encode(blobs : list[bytes]) : bytes
+    + decode(data : bytes) : list[bytes]
+  }
+
+  ' ── Security / Auth ───────────────────────────────────
+  class EncryptionEngine {
+    + encrypt(text, passphrase) : bytes
+    + decrypt(data, passphrase) : str
+    ' AES-256-GCM · PBKDF2-HMAC-SHA256 · 600k iters
+  }
+
+  class KeyManager {
+    + derive_key(passphrase, salt) : bytes
+  }
+
+  class AccountStore {
+    + create_account(email, pw) : None
+    + verify_password(email, pw) : bool
+    + get_account(email) : Optional[Account]
+  }
+
+  class SessionManager {
+    + create_session(email) : None
+    + load_session() : Optional[str]
+    + clear_session() : None
+  }
+
+  ' ── Plugin system ─────────────────────────────────────
+  abstract class PluginBase {
+    + name : str
+    + version : str
+    + mime_types : list[str]
+    + overrides : list[str]
+    + provides_formats : list[tuple]
+    --
+    + {abstract} initialize(ctx : PluginContext)
+    + {abstract} create_editor() : QWidget
+    + mime_type() : str
+    + pack(data) : bytes
+    + unpack(data) : bytes
+    + get_commands() : list
+    + register_hooks(registry)
+  }
+
+  class PluginRegistry {
+    - _plugins : list[PluginBase]
+    - _all_plugins : list[PluginBase]
+    - _hooks : dict[str, list[Callable]]
+    --
+    + register_plugin(plugin)
+    + unregister_plugin(name) : bool
+    + register_hook(name, fn)
+    + call_hook(name, note)
+    + load_manifests(plugin_dir)
+  }
+  note right of PluginRegistry
+    _plugins  = currently active
+    _all_plugins = permanent inventory
+    (never pruned, survives disable/restart)
+  end note
+
+  class PluginContext {
+    + log(msg : str)
+    + get_config(key) : Any
+    + set_config(key, value)
+  }
+
+  interface EditorProtocol << Protocol >> {
+    + load(note, decrypted_content)
+    + get_content() : str
+    + get_html_content() : str
+    + get_title() : str
+    + set_title(title : str)
+    + is_encrypted() : bool
+    + set_encrypted(flag : bool)
+  }
+
+  ' ── Utilities ─────────────────────────────────────────
+  class ConfigStore {
+    + get(key) : Any
+    + set(key, value)
+    + reset(key)
+    + list_all() : dict
+    ' persisted to .astranotes/config.json
+  }
+
+  class AuditLogger {
+    + log(event : str, **details)
+  }
+
+  class AppLockManager {
+    + acquire() : None
+    + release() : None
+    ' PID-file single-instance guard
+  }
+
+  class SyncClient {
+    + login(email, pw, url) : str
+    + push(notes, token, url)
+    + pull(since, token, url) : list[dict]
+  }
+
+  ' ── Intra-core relationships ───────────────────────────
+  DatabaseStore ..> Note      : creates / returns
+  DatabaseStore ..> Container : frames payload
+
+  BlobCodec     ..> EncryptionEngine : encrypts blobs
+
+  PluginRegistry "1" o--> "*" PluginBase : _plugins\n_all_plugins
+
+  PluginBase    ..>  EditorProtocol : create_editor() returns
+  PluginContext  ..>  ConfigStore    : delegates
+
+  AccountStore  ..>  EncryptionEngine : password hashing
+  SessionManager ..> AccountStore
+
+  PluginBase    ..>  PluginContext : receives at initialize()
+}
+
+' ============================================================
+' PACKAGE: src.desktop   ← PySide6 GUI
+' ============================================================
+package "src.desktop" as DESKTOP {
+
+  class AppController {
+    + run(argv : list[str])
+    ' startup order:
+    ' config → db → PID lock
+    ' → Qt app → MainWindow
+    ' → plugins (post-show)
+  }
+
+  class MainWindow << QMainWindow >> {
+    - _note_list : QListWidget
+    - _tab_widget : QTabWidget
+    - _note_editors : dict[str, PluginEditorHost]
+    - _current_note : Optional[Note]
+    - _reverting_selection : bool
+    - _cached_passphrase : Optional[str]
+    --
+    + _on_note_selected(current, prev)
+    + _on_note_item_clicked(item)
+    - _revert_note_selection(prev)
+    - _get_or_open_tab(note) : Optional[PluginEditorHost]
+    - _retarget_tab_editor(...) : Optional[PluginEditorHost]
+    - _warn_plugin_missing(title, mime)
+    - _find_editor_for_mime(mime) : Optional[PluginBase]
+  }
+  note right of MainWindow
+    _reverting_selection guard prevents
+    re-entrant currentItemChanged during
+    programmatic selection revert
+  end note
+
+  class PluginEditorHost << QWidget >> {
+    - _plugin : PluginBase
+    - _note : Optional[Note]
+    --
+    + load(note, decrypted_content)
+    + clear()
+    + set_title(title : str)
+    + get_title() : str
+    + get_content() : str
+    + get_html_content() : str
+    + is_encrypted() : bool
+    + set_encrypted(flag : bool)
+    + show_encrypted_placeholder()
+    + lock()
+  }
+
+  class plugin_loader << module >> {
+    + discover_plugins(plugin_dir, registry)
+    - _load_one(manifest_path, registry, cfg)
+    ' • consent dialog (unverified plugins)
+    ' • AST import scan (plugin_security)
+    ' • instantiate + initialize
+    ' • allowed_plugins whitelist check
+    ' • register_plugin → _all_plugins
+  }
+
+  class PluginsDialog << QDialog >> {
+    - _registry : PluginRegistry
+    - _open_mimes : frozenset
+    --
+    + _on_apply()
+    + _populate_installed()
+    + _populate_formats()
+    ' • blocks disable of in-use plugins
+    ' • live enable/disable via registry
+    ' • persists to allowed_plugins config
+  }
+
+  class SettingsDialog   << QDialog >>
+  class PassphraseDialog << QDialog >>
+  class PluginConsentDialog << QDialog >>
+
+  package "src.desktop.sync" as DSYNC {
+    class SyncWorker << QThread >> {
+      + run_push()
+      + run_pull()
+      ' signals: finished, error, conflict
+    }
+    class SyncLoginDialog << QDialog >>
+    class MergeWindow     << QDialog >>
+  }
+
+  ' ── Intra-desktop relationships ───────────────────────
+  AppController   -->  MainWindow       : creates & shows
+  AppController   ..>  plugin_loader    : calls discover_plugins()
+
+  MainWindow      *--  PluginEditorHost : 0..* tabs
+  MainWindow      -->  PluginsDialog    : opens
+  MainWindow      -->  SettingsDialog   : opens
+  MainWindow      -->  PassphraseDialog : opens
+  MainWindow      -->  SyncWorker       : spawns
+  MainWindow      -->  SyncLoginDialog  : opens
+
+  plugin_loader   -->  PluginConsentDialog : shows on first load
+
+  PluginEditorHost ..|> EditorProtocol
+}
+
+' ============================================================
+' PACKAGE: src.plugins   ← bundled plugins
+' ============================================================
+package "src.plugins" as PLUGINS {
+
+  package "tiptap_plugin" as P_TIP {
+    class TiptapPlugin {
+      + name = "TiptapPlugin"
+      + mime_types = ["text/html"]
+      --
+      + initialize(ctx)
+      + create_editor() : TiptapEditorWidget
+    }
+    class TiptapEditorWidget << QWidget >> {
+      ' QWebEngineView + JS EditorBridge
+      ' ProseMirror / Tiptap in WebEngine
+    }
+    TiptapPlugin --> TiptapEditorWidget : creates
+  }
+
+  package "voice_plugin" as P_VOI {
+    class VoicePlugin {
+      + name = "VoicePlugin"
+      + mime_types = ["audio/basic"]
+      --
+      + initialize(ctx)
+      + create_editor() : VoiceEditorWidget
+    }
+    class VoiceEditorWidget << QWidget >> {
+      ' record / playback via QAudioInput
+    }
+    VoicePlugin --> VoiceEditorWidget : creates
+  }
+
+  package "video_plugin" as P_VID {
+    class VideoPlugin {
+      + name = "VideoPlugin"
+      + mime_types = ["video/mp4"]
+      --
+      + initialize(ctx)
+      + create_editor() : VideoEditorWidget
+    }
+    class VideoEditorWidget << QWidget >> {
+      ' webcam record / playback via QMediaPlayer
+    }
+    VideoPlugin --> VideoEditorWidget : creates
+  }
+
+  TiptapPlugin --|> PluginBase
+  VoicePlugin  --|> PluginBase
+  VideoPlugin  --|> PluginBase
+}
+
+' ============================================================
+' PACKAGE: src.server   ← FastAPI cloud-sync
+' ============================================================
+package "src.server" as SERVER {
+
+  class ServerApp << FastAPI factory >> {
+    + create_app() : FastAPI
+    ' mounts routers, middleware, DB
+  }
+
+  class ServerNoteRow << SQLAlchemy >> {
+    + id : str
+    + owner_id : str
+    + payload : bytes
+    + updated_at : datetime
+  }
+
+  class AccountRateLimiter {
+    + check(account_id)
+    + record_failure(account_id)
+  }
+
+  class HTTPSEnforcementMiddleware
+
+  class ServerSettings {
+    + jwt_secret : str
+    + database_url : str
+    + data_dir : str
+  }
+
+  package "src.server.routers" as SROUTERS {
+    class AuthRouter << FastAPI router >> {
+      + POST /auth/register
+      + POST /auth/login
+    }
+    class SyncRouter << FastAPI router >> {
+      + POST /sync/push
+      + GET  /sync/pull?since=<ts>
+    }
+  }
+
+  class JWTHelper {
+    + create_token(claims) : str
+    + verify_token(token) : AccountClaims
+  }
+
+  ' ── Intra-server relationships ─────────────────────────
+  ServerApp        -->  AuthRouter               : mounts
+  ServerApp        -->  SyncRouter               : mounts
+  ServerApp        -->  HTTPSEnforcementMiddleware : applies
+
+  SyncRouter       ..>  ServerNoteRow            : reads / writes
+  SyncRouter       ..>  AccountRateLimiter        : rate-limits per account
+  SyncRouter       ..>  JWTHelper                 : verifies bearer
+
+  AuthRouter       ..>  AccountStore              : delegates password verify
+  AuthRouter       ..>  JWTHelper                 : issues token
+  AuthRouter       ..>  ServerSettings            : reads JWT config
+
+  JWTHelper        ..>  ServerSettings
+}
+
+' ============================================================
+' PACKAGE: src.cli   ← Click entry point
+' ============================================================
+package "src.cli" as CLI {
+  class CLIApp << Click >> {
+    + gui()
+    --
+    + add / list / get / update / delete
+    + search / export
+    + reencrypt
+    --
+    + config get / set / reset / list
+    + audit
+    --
+    + sync login / push / pull / logout
+  }
+}
+
+' ============================================================
+' CROSS-LAYER DEPENDENCIES
+' ============================================================
+
+' CLI → Core
+CLIApp ..> DatabaseStore   : CRUD notes
+CLIApp ..> ConfigStore     : read/write settings
+CLIApp ..> EncryptionEngine : re-encrypt
+CLIApp ..> AuditLogger     : view audit log
+CLIApp ..> SyncClient      : sync login/push/pull
+CLIApp ..> AccountStore    : sync auth
+
+' CLI → Desktop (GUI launch only)
+CLIApp ..> AppController   : <<launches GUI>>
+
+' Desktop bootstrap → Core
+AppController ..> DatabaseStore  : opens database
+AppController ..> ConfigStore    : reads config
+AppController ..> AppLockManager : acquires PID lock
+AppController ..> PluginRegistry : holds singleton
+AppController ..> AccountStore   : session restore
+AppController ..> SyncClient     : creates for window
+
+' Desktop UI → Core
+MainWindow ..> DatabaseStore   : CRUD notes
+MainWindow ..> PluginRegistry  : find editor for MIME
+MainWindow ..> EncryptionEngine : decrypt note content
+MainWindow ..> ConfigStore     : read UI settings
+MainWindow ..> SyncClient      : push / pull
+MainWindow ..> BlobCodec       : encode media blobs
+MainWindow ..> Container       : validate container
+
+SyncWorker ..> SyncClient      : delegates HTTP calls
+
+plugin_loader ..> PluginRegistry : register_plugin
+plugin_loader ..> PluginContext  : creates per-plugin
+plugin_loader ..> ConfigStore    : reads allowed_plugins
+
+PluginsDialog ..> PluginRegistry : enable / disable at runtime
+PluginsDialog ..> ConfigStore    : persists allowed_plugins
+
+PluginEditorHost ..> PluginBase  : hosts editor widget from
+
+' Plugins → Core plugin API only
+TiptapPlugin ..> PluginContext : receives context
+VoicePlugin  ..> PluginContext : receives context
+VideoPlugin  ..> PluginContext : receives context
+
+' Server → Core (shared AccountStore logic)
+AuthRouter ..> AccountStore : password verification
+
+' SyncClient ↔ Server transport
+SyncClient ..> ServerApp : <<HTTP / REST + JWT bearer>>
+
+@enduml

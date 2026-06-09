@@ -1,0 +1,151 @@
+@startuml AstraNotes – Use Case Diagram
+
+skinparam actorBackgroundColor   #EEF6FF
+skinparam actorBorderColor       #5577AA
+skinparam usecaseBackgroundColor #FFFFFF
+skinparam usecaseBorderColor     #888888
+skinparam arrowColor             #444444
+skinparam noteBackgroundColor    #FFFDE7
+skinparam noteBorderColor        #BBAA00
+skinparam shadowing false
+skinparam defaultFontSize 11
+
+left to right direction
+
+title AstraNotes – Use Case Diagram
+
+' ─── Actors ───────────────────────────────────────────────
+actor "User\n(Desktop GUI)" as UserGUI
+actor "User\n(CLI)" as UserCLI
+actor "Plugin\nDeveloper" as PluginDev
+actor "Sync Server\n(FastAPI)" as SyncSrv
+
+' ─── System boundary ──────────────────────────────────────
+rectangle "AstraNotes" {
+
+  ' ── Note Management ─────────────────────────────────────
+  package "Note Management" {
+    usecase "Create Note"                     as UC_CREATE
+    usecase "Edit Note"                       as UC_EDIT
+    usecase "Delete Note"                     as UC_DELETE
+    usecase "Search Notes"                    as UC_SEARCH
+    usecase "Export Notes\n(JSON / Markdown)" as UC_EXPORT
+    usecase "View Audit Log"                  as UC_AUDIT
+  }
+
+  ' ── Encryption ──────────────────────────────────────────
+  package "Encryption" {
+    usecase "Encrypt Note\n(AES-256-GCM)"     as UC_ENCRYPT
+    usecase "Unlock / Decrypt Note"           as UC_DECRYPT
+    usecase "Re-encrypt Note\n(new passphrase)" as UC_REENC
+  }
+
+  ' ── Plugin-Aware Viewing ────────────────────────────────
+  package "Note Viewing" {
+    usecase "Open Note\n(plugin routing)"     as UC_OPEN
+    usecase "View Rich-Text Note\n(TiptapPlugin · text/html)"  as UC_TIPTAP
+    usecase "Play / Record Voice Note\n(VoicePlugin · audio/basic)" as UC_VOICE
+    usecase "Play / Record Video Note\n(VideoPlugin · video/mp4)"   as UC_VIDEO
+  }
+
+  ' ── Plugin Administration ───────────────────────────────
+  package "Plugin Administration" {
+    usecase "Enable / Disable Plugin\n(Plugin Admin dialog)"   as UC_PTOGGLE
+    usecase "View Supported Formats"          as UC_FORMATS
+    usecase "Install User Plugin"             as UC_INSTALL
+    usecase "Grant Plugin Consent\n(unverified plugin)"        as UC_CONSENT
+  }
+
+  ' ── Configuration ───────────────────────────────────────
+  package "Configuration" {
+    usecase "Change Settings\n(theme · font · GPU · sync)"     as UC_SETTINGS
+    usecase "Manage Config Keys\n(config get/set/reset/list)"  as UC_CONFIG
+  }
+
+  ' ── Cloud Sync ──────────────────────────────────────────
+  package "Cloud Sync" {
+    usecase "Login to Sync Server\n(password or OAuth)"        as UC_LOGIN
+    usecase "Push Notes"                      as UC_PUSH
+    usecase "Pull Notes"                      as UC_PULL
+    usecase "OAuth Login\n(Google PKCE)"      as UC_OAUTH
+    usecase "Logout"                          as UC_LOGOUT
+  }
+}
+
+' ─── UserGUI associations ─────────────────────────────────
+UserGUI --> UC_CREATE
+UserGUI --> UC_EDIT
+UserGUI --> UC_DELETE
+UserGUI --> UC_SEARCH
+UserGUI --> UC_EXPORT
+UserGUI --> UC_ENCRYPT
+UserGUI --> UC_DECRYPT
+UserGUI --> UC_OPEN
+UserGUI --> UC_PTOGGLE
+UserGUI --> UC_FORMATS
+UserGUI --> UC_INSTALL
+UserGUI --> UC_CONSENT
+UserGUI --> UC_SETTINGS
+UserGUI --> UC_LOGIN
+UserGUI --> UC_PUSH
+UserGUI --> UC_PULL
+UserGUI --> UC_LOGOUT
+
+' ─── UserCLI associations ─────────────────────────────────
+UserCLI --> UC_CREATE
+UserCLI --> UC_EDIT
+UserCLI --> UC_DELETE
+UserCLI --> UC_SEARCH
+UserCLI --> UC_EXPORT
+UserCLI --> UC_ENCRYPT
+UserCLI --> UC_REENC
+UserCLI --> UC_CONFIG
+UserCLI --> UC_AUDIT
+UserCLI --> UC_LOGIN
+UserCLI --> UC_PUSH
+UserCLI --> UC_PULL
+UserCLI --> UC_LOGOUT
+
+' ─── Plugin Developer ─────────────────────────────────────
+PluginDev --> UC_INSTALL
+
+' ─── Sync Server (external system) ───────────────────────
+SyncSrv --> UC_LOGIN  : handles auth request
+SyncSrv --> UC_PUSH   : receives pushed notes
+SyncSrv --> UC_PULL   : responds with notes
+
+' ─── <<include>> relationships ────────────────────────────
+UC_INSTALL ..> UC_CONSENT   : <<include>>\n(unverified plugin always\nrequires consent on first load)
+
+UC_DECRYPT ..> UC_ENCRYPT   : <<include>>\n(note must already be\nencrypted to unlock)
+
+' ─── <<extend>> relationships ────────────────────────────
+UC_TIPTAP ..> UC_OPEN       : <<extend>>\n[mime = text/html]
+UC_VOICE  ..> UC_OPEN       : <<extend>>\n[mime = audio/basic]
+UC_VIDEO  ..> UC_OPEN       : <<extend>>\n[mime = video/mp4]
+
+UC_OAUTH  ..> UC_LOGIN      : <<extend>>\n[user chooses Google OAuth]
+
+note bottom of UC_OPEN
+  If no plugin supports the MIME type
+  (e.g. VideoPlugin disabled),
+  _warn_plugin_missing() is shown
+  and selection is reverted —
+  the note does NOT open.
+end note
+
+note bottom of UC_PTOGGLE
+  Disabling a plugin whose note
+  is currently open is blocked
+  until that tab is closed.
+  Change persists via allowed_plugins
+  config key across restarts.
+end note
+
+note right of UC_AUDIT
+  CLI only — append-only log
+  of encrypt, auth, plugin load,
+  export, and sync events.
+end note
+
+@enduml
