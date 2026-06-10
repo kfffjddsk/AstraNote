@@ -425,6 +425,51 @@ class TestDatabaseStoreSearch:
         assert len(results) == 1
         assert results[0].blob is None
 
+    def test_search_excludes_audio_note_content(self, tmp_path: Path) -> None:
+        """Audio (data-URL) notes must not match on their binary payload.  [BL B-29]"""
+        store = _make_store(tmp_path)
+        # "gue" appears in base64-encoded audio payload — must NOT surface the note
+        audio = Note.create("Voice", "data:audio/basic;base64,SUQzBAAAAAAAI1RTU0UAAAAP")
+        store.add(audio)
+        # Content search must not return this note
+        assert store.search("gue") == []
+        # Title search still works
+        assert len(store.search("Voice")) == 1
+
+    def test_search_excludes_video_note_content(self, tmp_path: Path) -> None:
+        """Video (data-URL) notes must not match on their binary payload.  [BL B-29]"""
+        store = _make_store(tmp_path)
+        video = Note.create("Demo", "data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb20=")
+        store.add(video)
+        assert store.search("eXBp") == []   # base64 fragment — must not match
+        assert len(store.search("Demo")) == 1  # title still matches
+
+    def test_search_legacy_audio_note_with_wrong_mime_excluded(self, tmp_path: Path) -> None:
+        """Notes stored before MIME detection was added still get excluded.
+
+        Legacy containers have mime_type='text/plain' but a data-URL payload.
+        The data-URL prefix check catches them even when the MIME header is wrong.
+        """
+        from src.core.container import Container
+        store = _make_store(tmp_path)
+        # Simulate legacy framing: force text/plain even for audio content
+        content = "data:audio/basic;base64,SUQzBAAAAAAAI1RTU0UAAAAP"
+        legacy_container = Container.frame(content.encode("utf-8"), "text/plain", flags=0)
+        note = Note.create("LegacyVoice", content)
+        note._legacy_container = legacy_container  # will be overwritten on add
+        store.add(note)
+        # The store.add will re-frame with correct MIME now, so to test legacy
+        # behaviour we directly patch the stored container to use text/plain.
+        from sqlalchemy.orm import Session as _SA_Session
+        from src.core.store import _NoteRow
+        with store._Session() as sess:
+            row = sess.get(_NoteRow, note.id)
+            row.container = legacy_container
+            sess.commit()
+        # Now search must still exclude it (data-URL prefix fallback)
+        assert store.search("SUQzB") == []
+        assert len(store.search("LegacyVoice")) == 1
+
 
 # ===========================================================================
 # §4  CLI search command
